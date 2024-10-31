@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1001 &904125462310796712
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 385519441574970384, guid: ab16d9351715082418a79adbfd134733, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: -90
+      objectReference: {fileID: 0}
+    - target: {fileID: 385519441574970384, guid: ab16d9351715082418a79adbfd134733, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 385519441574970384, guid: ab16d9351715082418a79adbfd134733, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3365799374895561169, guid: ab16d9351715082418a79adbfd134733, type: 3}
+      propertyPath: m_Name
+      value: Transparency-High Variant
+      objectReference: {fileID: 0}
+    - target: {fileID: 4208063719795130884, guid: ab16d9351715082418a79adbfd134733, type: 3}
+      propertyPath: m_Asset
+      value: 
+      objectReference: {fileID: 11400000, guid: 42ccebc9c8d5d96459ecc88510125596, type: 2}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: ab16d9351715082418a79adbfd134733, type: 3}

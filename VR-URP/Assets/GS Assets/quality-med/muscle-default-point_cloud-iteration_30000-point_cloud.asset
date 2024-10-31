@@ -1,0 +1,53 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 33b71fae31e6c7d438e8566dc713e666, type: 3}
+  m_Name: muscle-default-point_cloud-iteration_30000-point_cloud
+  m_EditorClassIdentifier: 
+  m_FormatVersion: 20240801
+  m_SplatCount: 196978
+  m_BoundsMin: {x: -0.16911016, y: -0.13353482, z: -0.50024194}
+  m_BoundsMax: {x: 0.035652567, y: -0.025660463, z: 0.24934122}
+  m_DataHash:
+    serializedVersion: 2
+    Hash: d0b21eeb4b556cc2514c6654cc0e712f
+  m_LayerInfo:
+  - x: 0
+    y: 99184
+  - x: 1
+    y: 39017
+  - x: 2
+    y: 58777
+  m_PosFormat: 2
+  m_ScaleFormat: 2
+  m_SHFormat: 6
+  m_ColorFormat: 2
+  m_clusteredSHData: {fileID: 4900000, guid: 64b73eff1df69ce46a95da2445c8b8da, type: 3}
+  m_layerData:
+  - layer: 0
+    m_PosData: {fileID: 4900000, guid: 7dda7c973b886e74cbf978003db4eca3, type: 3}
+    m_ColorData: {fileID: 4900000, guid: 69ff0bd44a155fe4ebd0602aaede5667, type: 3}
+    m_OtherData: {fileID: 4900000, guid: 29e6c1ad6e9158c4abd5d6ff9d3c8ba6, type: 3}
+    m_SHData: {fileID: 0}
+    m_ChunkData: {fileID: 4900000, guid: 1956a9033170e494793858071bef66ce, type: 3}
+  - layer: 1
+    m_PosData: {fileID: 4900000, guid: d1b516f49e4cf5f4f9604d8be660323d, type: 3}
+    m_ColorData: {fileID: 4900000, guid: 8e011b604d7ea8c4baee7e421189eb26, type: 3}
+    m_OtherData: {fileID: 4900000, guid: 5d2e6f42cb1539f48ab6d37118eb48a6, type: 3}
+    m_SHData: {fileID: 0}
+    m_ChunkData: {fileID: 4900000, guid: 97c82d90d52b7c1438808beb1afbc7c5, type: 3}
+  - layer: 2
+    m_PosData: {fileID: 4900000, guid: 94165d5c69e2b8c4191d1d943614ca8b, type: 3}
+    m_ColorData: {fileID: 4900000, guid: c93535d9f19133c499d8fedbe947c708, type: 3}
+    m_OtherData: {fileID: 4900000, guid: 65989d08ba29bd740b5c6698e33a0c27, type: 3}
+    m_SHData: {fileID: 0}
+    m_ChunkData: {fileID: 4900000, guid: 9b82e777c90015f47b76c357fadb877b, type: 3}
+  m_Cameras: []

@@ -1,0 +1,13 @@
+{
+  "author": "Aras Pranckevicius",
+  "dependencies": { "com.unity.burst": "1.8.8", "com.unity.collections": "2.1.4", "com.unity.mathematics": "1.2.6" },
+  "description": "3D Gaussian Splatting rendering and tools, extended with splat layer support",
+  "displayName": "Gaussian Splatting",
+  "keywords": [ "unity" ],
+  "license": "MIT",
+  "name": "org.nesnausk.gaussian-splatting",
+  "repository": "github:aras-p/UnityGaussianSplatting",
+  "unity": "2022.3",
+  "unityRelease": "7f1",
+  "version": "0.9.0"
+}

@@ -1,0 +1,54 @@
+{
+    "name": "DemoInputs",
+    "maps": [
+        {
+            "name": "XR Interaction",
+            "id": "be00484f-e207-4324-bc83-21858d915670",
+            "actions": [
+                {
+                    "name": "Delete Left",
+                    "type": "Button",
+                    "id": "2d84d973-8947-4b45-8252-b0026f167e77",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Delete Right",
+                    "type": "Button",
+                    "id": "c7e4997b-98fc-48b9-95cb-972059d0052e",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                }
+            ],
+            "bindings": [
+                {
+                    "name": "",
+                    "id": "dd870603-3f87-404d-9692-4513876a14c1",
+                    "path": "<XRController>{LeftHand}/secondaryButton",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Delete Left",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "2a20202f-1d24-4a92-8a23-cf134d16b36e",
+                    "path": "<XRController>{RightHand}/secondaryButton",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Delete Right",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                }
+            ]
+        }
+    ],
+    "controlSchemes": []
+}
