@@ -1,6 +1,10 @@
 # Gaussian Splatting Virtual Reality rendering package for Unity
 
-This rendering package has been adapted to render multi-layer and normal Gaussian Splatting point clouds in Unity in Virtual Reality. Originally created for a paper publication, this repository contains a somewhat slimmed down version ready to be used for your VR GS project.
+This rendering package enables Virtual Reality (VR) display of Gaussian Splatting (GS) point clouds. It builds on the rendering package created by Aras Pranckevičius to display Gaussian Splats in Unity; see https://github.com/aras-p/UnityGaussianSplatting. This rendering package is part of a publication for displaying CT scans as a GS cloud in VR, but should work with any data. See https://arxiv.org/abs/2410.16978
+
+This fork adds two new capabilities:
+- Rendering multi-layer Gaussian Splatting point cloud
+- Virtual Reality rendering support
 
 This repository has been tested and works with:
 - HTC Vive series headsets
@@ -9,27 +13,32 @@ This repository has been tested and works with:
 
 Quest 3 gets 72 fps stable until around 400k Gaussians with proper settings. Tethered devices with proper hardware a lot more. See https://www.youtube.com/watch?v=a6B9Ljci6iw for an example.
 
-Do keep in mind this is experimental. Feel free base your work on this.
+Do keep in mind this is experimental. Feel free to base your work on this.
 
 ### Changes to make VR work
 This repository contains some changes for improved VR experiences:
-- Uses Unity projection matrices in shaders where neccessary
-- Correctly handles size of textures for eyes
+- Uses Unity projection matrices in shaders where necessary
+- Correctly handles the size of textures for eyes
 - Shader adjustments to make Quest series devices work (tick box `GaussianSplatRenderer.cs` inspector)
-- Backported AMD FFX sorting for quest, selectable sorting algo
+- Backported AMD FFX sorting for the quest, selectable sorting algo
 - Experimental Quest compatible RadixSort, see https://github.com/b0nes164/GPUSorting/issues/4
 Probably forgot some more stuff.
 
 ### Usage
 
-Follow the original steps to create a compressed GS representation in Unity. To render, use the included `GaussianSplatRenderer.cs` script which has been extended. Enable Quest compatability to make sure rendering works for the Quest (also works on other headsets, maybe minor performance drawbacks). Enable center eye sorting for better performance at very slight image degradation. Adjust sorting frequency for the target hardware.
+Follow the original steps to create a compressed GS representation in Unity. To render, use the included `GaussianSplatRenderer.cs` script which has been extended. Enable Quest compatibility to ensure rendering works for the Quest (also works on other headsets, maybe minor performance drawbacks). Enable center eye sorting for better performance at very slight image degradation. Adjust sorting frequency for the target hardware.
 
 Check out the Demo scene, or the Quest .apk file from releases.
 
-### Related
-If you like this work, do check out https://github.com/roth-hex-lab/Multi-Layer-Gaussian-Splatting-for-Immersive-Anatomy-Visualization
+### Limitations
 
-If this is useful in a scientific work, please do cite:
+- Texture compression (BC7) currently does not work. This is because texture compression APIs are only available in the Editor, not the built application, and are needed for dynamic compression for layered display.
+- Editing tools are not supported. If you need to edit a GS point cloud please use the original repo or another GS editor
+
+### Related
+If you like this work, ow want to get code to create multi-layer Gaussian Splatting representations, do check out https://github.com/roth-hex-lab/Multi-Layer-Gaussian-Splatting-for-Immersive-Anatomy-Visualization
+
+If this is useful in a scientific work, please cite:
 ```
 @misc{kleinbeck_multi-layer_2024,
     title = {Multi-{Layer} {Gaussian} {Splatting} for {Immersive} {Anatomy} {Visualization}},
@@ -46,7 +55,6 @@ If this is useful in a scientific work, please do cite:
 
 <br>
 
-Editing tools are not tested with multi-layer GS and most likely do not work. 
 
 Originally created by Aras Pranckevičius to render Gaussian Splats in Unity. Thank you very much for making this software open source. Please see the original readme below for more information:
 
