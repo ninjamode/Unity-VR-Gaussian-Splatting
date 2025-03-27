@@ -1,6 +1,6 @@
 # Gaussian Splatting Virtual Reality rendering package for Unity
 
-This rendering package enables Virtual Reality (VR) display of Gaussian Splatting (GS) point clouds. It builds on the rendering package created by Aras Pranckevičius to display Gaussian Splats in Unity; see https://github.com/aras-p/UnityGaussianSplatting. This rendering package is part of a publication for displaying CT scans as a GS cloud in VR, but should work with any data. See https://arxiv.org/abs/2410.16978
+This rendering package enables Virtual Reality (VR) display of Gaussian Splatting (GS) point clouds. It builds on the rendering package created by Aras Pranckevičius to display Gaussian Splats in Unity; see https://github.com/aras-p/UnityGaussianSplatting. This rendering package is part of a publication for displaying CT scans as a GS cloud in VR, but should work with any data. See [https://arxiv.org/abs/2410.16978](https://ieeexplore.ieee.org/document/10919012)
 
 This fork adds two new capabilities:
 - Rendering multi-layer Gaussian Splatting point cloud
@@ -40,16 +40,15 @@ If you like this work, ow want to get code to create multi-layer Gaussian Splatt
 
 If this is useful in a scientific work, please cite:
 ```
-@misc{kleinbeck_multi-layer_2024,
-    title = {Multi-{Layer} {Gaussian} {Splatting} for {Immersive} {Anatomy} {Visualization}},
-    url = {http://arxiv.org/abs/2410.16978},
-    doi = {10.48550/arXiv.2410.16978},
-    publisher = {arXiv},
-    author = {Kleinbeck, Constantin and Schieber, Hannah and Engel, Klaus and Gutjahr, Ralf and Roth, Daniel},
-    month = oct,
-    year = {2024},
-    note = {arXiv:2410.16978},
-    keywords = {Computer Science - Computer Vision and Pattern Recognition, Computer Science - Graphics},
+@article{kleinbeck_multi-layer_2025,
+	title = {Multi-Layer Gaussian Splatting for Immersive Anatomy Visualization},
+	issn = {1941-0506},
+	url = {https://ieeexplore.ieee.org/document/10919012},
+	doi = {10.1109/TVCG.2025.3549882},
+	pages = {1--11},
+	journaltitle = {{IEEE} Transactions on Visualization and Computer Graphics},
+	author = {Kleinbeck, Constantin and Schieber, Hannah and Engel, Klaus and Gutjahr, Ralf and Roth, Daniel},
+	date = {2025},
 }
 ```
 
