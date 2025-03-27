@@ -1,6 +1,6 @@
 # Gaussian Splatting Virtual Reality rendering package for Unity
 
-This rendering package enables Virtual Reality (VR) display of Gaussian Splatting (GS) point clouds. It builds on the rendering package created by Aras Pranckevičius to display Gaussian Splats in Unity; see https://github.com/aras-p/UnityGaussianSplatting. This rendering package is part of a publication for displaying CT scans as a GS cloud in VR, but should work with any data. See [https://arxiv.org/abs/2410.16978](https://ieeexplore.ieee.org/document/10919012)
+This rendering package enables Virtual Reality (VR) display of Gaussian Splatting (GS) point clouds. It builds on the rendering package created by Aras Pranckevičius to display Gaussian Splats in Unity; see https://github.com/aras-p/UnityGaussianSplatting. This rendering package is part of a publication for displaying CT scans as a GS cloud in VR, but should work with any data. See https://ieeexplore.ieee.org/document/10919012
 
 This fork adds two new capabilities:
 - Rendering multi-layer Gaussian Splatting point cloud
