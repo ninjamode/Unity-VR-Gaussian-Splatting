@@ -1,0 +1,16 @@
+fileFormatVersion: 2
+guid: db3bb8da73f2c45779c524136584ce3a
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - m_ShaderSplats: {fileID: 4800000, guid: a96fc3326589f425793ef53ce2b594dc, type: 3}
+  - m_ShaderComposite: {fileID: 4800000, guid: 06b34d9a957b3465a9e03e7b492b2df9, type: 3}
+  - m_ShaderDebugPoints: {fileID: 4800000, guid: e24f8505c0f2e42659bca97a22e77cd5, type: 3}
+  - m_ShaderDebugBoxes: {fileID: 4800000, guid: 2c5fbed44f15149f2ab8be0e6cbd1246, type: 3}
+  - m_CSSplatUtilities: {fileID: 7200000, guid: 25b9e0502e96945cfa2289cd6f990473, type: 3}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

@@ -1,0 +1,20 @@
+{
+    "name": "Gaussians.ThreeD.HDRP",
+    "rootNamespace": "Gaussians.ThreeD",
+    "references": [
+        "Gaussians.ThreeD",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.HighDefinition.Runtime"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "GAUSSIANS_ENABLE_HDRP"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.render-pipelines.high-definition",
+            "expression": "",
+            "define": "GAUSSIANS_ENABLE_HDRP"
+        }
+    ]
+}

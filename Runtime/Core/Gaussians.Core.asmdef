@@ -1,0 +1,25 @@
+{
+    "name": "Gaussians.Core",
+    "rootNamespace": "Gaussians.Core",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.render-pipelines.universal",
+            "expression": "",
+            "define": "GAUSSIANS_ENABLE_URP"
+        },
+        {
+            "name": "com.unity.render-pipelines.high-definition",
+            "expression": "",
+            "define": "GAUSSIANS_ENABLE_HDRP"
+        }
+    ],
+    "noEngineReferences": false
+}

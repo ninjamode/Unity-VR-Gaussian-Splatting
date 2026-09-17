@@ -1,0 +1,28 @@
+{
+    "name": "Gaussians.TwoD",
+    "rootNamespace": "Gaussians.TwoD",
+    "references": [
+        "GUID:41a0a7027099e4d5ba702adde83319ef",
+        "GUID:d8b63aba1907145bea998dd612889d6b"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.render-pipelines.universal",
+            "expression": "",
+            "define": "GAUSSIANS_ENABLE_URP"
+        },
+        {
+            "name": "com.unity.render-pipelines.high-definition",
+            "expression": "",
+            "define": "GAUSSIANS_ENABLE_HDRP"
+        }
+    ],
+    "noEngineReferences": false
+}

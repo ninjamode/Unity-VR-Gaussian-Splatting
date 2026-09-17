@@ -1,0 +1,21 @@
+{
+    "name": "Gaussians.Core.Editor",
+    "rootNamespace": "Gaussians.Core.Editor",
+    "references": [
+        "GUID:41a0a7027099e4d5ba702adde83319ef",
+        "GUID:2665a8d13d1b3f18800f46e256720795",
+        "GUID:e0cd26848372d4e5c891c569017e11f1",
+        "GUID:d8b63aba1907145bea998dd612889d6b"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

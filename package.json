@@ -1,0 +1,15 @@
+{
+	"name": "net.kleinbeck.gaussians",
+	"displayName":"Unity Gaussians",
+	"version": "0.1.0",
+	"unity": "6000.3",
+	"description": "Import and render trained Gaussian splat models in Unity.",
+    "dependencies": { "com.unity.burst": "1.8.8", "com.unity.collections": "2.1.4", "com.unity.mathematics": "1.2.6" },
+    "license": "MIT",
+	"author": {
+		"name": "Constantin Kleinbeck, HEX Lab",
+		"url": "https://kleinbeck.net",
+		"email": "constantin@kleinbeck.net"
+	},
+	"documentationUrl": "https://github.com/ninjamode/unity-gaussians/Readme.md"
+}
