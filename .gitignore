@@ -1,0 +1,33 @@
+# Unity package directories intentionally end in ~.
+# Keep them despite common global editor-backup patterns such as *~.
+!Documentation~/
+!Documentation~/**
+
+!Samples~/
+!Samples~/**
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+.vscode/
+.vs/
+*.sln
+*.csproj
+*.csproj.user
+*.sln.iml
+*.user
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.swo
+*.log
+
+# Other
+docs/
+docs.meta
