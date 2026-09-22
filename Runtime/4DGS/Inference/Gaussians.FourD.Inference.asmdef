@@ -1,0 +1,20 @@
+{
+  "name": "Gaussians.FourD.Inference",
+  "rootNamespace": "Gaussians.FourD.Inference",
+  "references": [
+    "Gaussians.FourD",
+    "Unity.InferenceEngine",
+    "Gaussians.ThreeD"
+  ],
+  "defineConstraints": [
+    "GAUSSIANS_INFERENCE"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.unity.ai.inference",
+      "expression": "[2.6,3.0)",
+      "define": "GAUSSIANS_INFERENCE"
+    }
+  ],
+  "autoReferenced": true
+}

@@ -114,6 +114,7 @@ namespace Gaussians.ThreeD
                 if (gs == null || !gs.isActiveAndEnabled || !gs.HasValidAsset || !gs.HasValidRenderSetup ||
                     (cam.cullingMask & (1 << gs.gameObject.layer)) == 0)
                     continue;
+                gs.PrepareSource();
                 m_ActiveSplats.Add((kvp.Key, kvp.Value));
                 if (gs.usesDirectTransparentPath)
                     HasDirectSplats = true;
@@ -387,7 +388,7 @@ namespace Gaussians.ThreeD
 
     [ExecuteInEditMode]
     [AddComponentMenu("Gaussians/3D Splat Renderer")]
-    public class GaussianSplat3DRenderer : MonoBehaviour
+    public partial class GaussianSplat3DRenderer : MonoBehaviour
     {
         public enum RenderMode
         {
@@ -485,6 +486,7 @@ namespace Gaussians.ThreeD
             public Matrix4x4 MatrixMV;
             public int RenderDataVersion;
             public int SortNthFrame;
+            public uint PositionRevision;
         }
 
         internal struct ViewSignature : IEquatable<ViewSignature>
@@ -505,10 +507,12 @@ namespace Gaussians.ThreeD
             public float MinimumSplatRadiusPixels;
             public int CutoutHash;
             public int RenderDataVersion;
+            public uint AttributeRevision;
+            public float NearClip;
 
             public bool Equals(ViewSignature other)
             {
-                return RightView.Equals(other.RightView) && RightProjection.Equals(other.RightProjection) &&
+                return AttributeRevision == other.AttributeRevision && NearClip.Equals(other.NearClip) && RightView.Equals(other.RightView) && RightProjection.Equals(other.RightProjection) &&
                        RightScreenSize.Equals(other.RightScreenSize) && ViewCount == other.ViewCount && ConvertColor == other.ConvertColor && View.Equals(other.View) &&
                        Projection.Equals(other.Projection) &&
                        ObjectToWorld.Equals(other.ObjectToWorld) &&
@@ -704,10 +708,10 @@ namespace Gaussians.ThreeD
             m_Asset != null &&
             m_Asset.splatCount > 0 &&
             m_Asset.formatVersion == GaussianSplat3DAsset.kCurrentVersion &&
-            m_Asset.posData != null &&
+            (m_Asset.hasValidFloatData || (m_Asset.posData != null &&
             m_Asset.otherData != null &&
             m_Asset.shData != null &&
-            m_Asset.colorData != null;
+            m_Asset.colorData != null));
         public bool HasValidRenderSetup => m_GpuPosData != null && m_GpuOtherData != null && m_GpuChunks != null;
 
         const int kGpuViewDataSize = 40;
@@ -718,18 +722,33 @@ namespace Gaussians.ThreeD
                 return;
 
             m_SplatCount = asset.splatCount;
-            m_GpuPosData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, (int) (asset.posData.dataSize / 4), 4) { name = "GaussianPosData" };
-            m_GpuPosData.SetData(asset.posData.GetData<uint>());
-            m_GpuOtherData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, (int) (asset.otherData.dataSize / 4), 4) { name = "GaussianOtherData" };
-            m_GpuOtherData.SetData(asset.otherData.GetData<uint>());
-            m_GpuSHData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, (int) (asset.shData.dataSize / 4), 4) { name = "GaussianSHData" };
-            m_GpuSHData.SetData(asset.shData.GetData<uint>());
-            var (texWidth, texHeight) = GaussianSplat3DAsset.CalcTextureSize(asset.splatCount);
-            var texFormat = GaussianSplat3DAsset.ColorFormatToGraphics(asset.colorFormat);
-            var tex = new Texture2D(texWidth, texHeight, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.IgnoreMipmapLimit | TextureCreationFlags.DontUploadUponCreate) { name = "GaussianColorData" };
-            tex.SetPixelData(asset.colorData.GetData<byte>(), 0);
-            tex.Apply(false, true);
-            m_GpuColorData = tex;
+            m_FloatData = new GaussianSplat3DData(asset.isFloatSource ? m_SplatCount : 1,
+                asset.isFloatSource ? (asset.floatSHDegree + 1) * (asset.floatSHDegree + 1) : 1, asset.floatSHStorage);
+            if (asset.isFloatSource)
+            {
+                m_FloatData.Splats.SetData(asset.floatSplats.GetData<Vector4>());
+                m_FloatData.SH.SetData(asset.floatSH.GetData<uint>());
+                // Bind valid dummies for the packed branch; no packed copy of the cloud.
+                m_GpuPosData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, 4, 4);
+                m_GpuOtherData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, 4, 4);
+                m_GpuSHData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, 48, 4);
+                m_GpuColorData = Texture2D.blackTexture;
+            }
+            else
+            {
+                m_GpuPosData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, (int) (asset.posData.dataSize / 4), 4) { name = "GaussianPosData" };
+                m_GpuPosData.SetData(asset.posData.GetData<uint>());
+                m_GpuOtherData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, (int) (asset.otherData.dataSize / 4), 4) { name = "GaussianOtherData" };
+                m_GpuOtherData.SetData(asset.otherData.GetData<uint>());
+                m_GpuSHData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, (int) (asset.shData.dataSize / 4), 4) { name = "GaussianSHData" };
+                m_GpuSHData.SetData(asset.shData.GetData<uint>());
+                var (texWidth, texHeight) = GaussianSplat3DAsset.CalcTextureSize(asset.splatCount);
+                var texFormat = GaussianSplat3DAsset.ColorFormatToGraphics(asset.colorFormat);
+                var tex = new Texture2D(texWidth, texHeight, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.IgnoreMipmapLimit | TextureCreationFlags.DontUploadUponCreate) { name = "GaussianColorData" };
+                tex.SetPixelData(asset.colorData.GetData<byte>(), 0);
+                tex.Apply(false, true);
+                m_GpuColorData = tex;
+            }
             if (asset.chunkData != null && asset.chunkData.dataSize != 0)
             {
                 m_GpuChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
@@ -880,6 +899,7 @@ namespace Gaussians.ThreeD
 
         public void OnEnable()
         {
+            ResolveShaders();
 #if UNITY_EDITOR
             UnityEditor.Undo.undoRedoPerformed += OnUndoRedo;
 #endif
@@ -898,6 +918,7 @@ namespace Gaussians.ThreeD
         {
             ComputeShader cs = m_CSSplatUtilities;
             int kernelIndex = (int) kernel;
+            BindSource(cmb, cs, kernelIndex);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatPos, m_GpuPosData);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatChunks, m_GpuChunks);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatOther, m_GpuOtherData);
@@ -924,6 +945,7 @@ namespace Gaussians.ThreeD
 
         internal void SetAssetDataOnMaterial(MaterialPropertyBlock mat)
         {
+            BindSource(mat);
             mat.SetFloat(Props.AlphaCutoff, Mathf.Clamp01(m_AlphaCutoff));
             mat.SetInt(Props.ConvertGammaToLinear, effectiveDirectConversion ? 1 : 0);
             mat.SetFloat(Props.MinimumSplatRadiusPixels, Mathf.Max(0, m_MinimumSplatRadiusPixels));
@@ -988,7 +1010,7 @@ namespace Gaussians.ThreeD
             Vector3 boundsMax = asset.boundsIncludeSplatExtents ? asset.renderBoundsMax : asset.boundsMax;
             Bounds localBounds = new((boundsMin + boundsMax) * 0.5f, boundsMax - boundsMin);
             Bounds worldBounds = TransformBounds(transform.localToWorldMatrix, localBounds);
-            if (!asset.boundsIncludeSplatExtents || editModified || Mathf.Abs(m_SplatScale) > 2.0f)
+            if (m_SourceFrame.Data != null || !asset.boundsIncludeSplatExtents || editModified || Mathf.Abs(m_SplatScale) > 2.0f)
             {
                 // Assets created before splat-extent bounds were introduced only contain
                 // center bounds. Keep the original center (used by transparent sorting), but
@@ -997,6 +1019,10 @@ namespace Gaussians.ThreeD
                 Vector3 cameraOffset = cam.transform.position - worldBounds.center;
                 cameraOffset = new Vector3(Mathf.Abs(cameraOffset.x), Mathf.Abs(cameraOffset.y), Mathf.Abs(cameraOffset.z));
                 worldBounds.extents = Vector3.Max(worldBounds.extents, cameraOffset + Vector3.one);
+                Vector3 interior = cam.ViewportToWorldPoint(new Vector3(0.5f, 0.5f,
+                    Mathf.Lerp(cam.nearClipPlane, cam.farClipPlane, 0.5f))) - worldBounds.center;
+                worldBounds.extents = Vector3.Max(worldBounds.extents,
+                    new Vector3(Mathf.Abs(interior.x), Mathf.Abs(interior.y), Mathf.Abs(interior.z)) + Vector3.one);
             }
             // Covariance filtering adds a pixel footprint beyond the baked ellipsoid.
             float pixelMargin = cam.orthographic ? cam.orthographicSize * 2 / Mathf.Max(1, cam.pixelHeight) :
@@ -1021,7 +1047,10 @@ namespace Gaussians.ThreeD
 
         void DisposeResourcesForAsset()
         {
-            DestroyImmediate(m_GpuColorData);
+            if (m_GpuColorData != Texture2D.blackTexture) DestroyImmediate(m_GpuColorData);
+            m_GpuColorData = null;
+            m_FloatData?.Dispose(); m_FloatData = null;
+            m_SourceFrame = default;
 
             DisposeBuffer(ref m_GpuPosData);
             DisposeBuffer(ref m_GpuOtherData);
@@ -1150,6 +1179,8 @@ namespace Gaussians.ThreeD
                 MinimumSplatRadiusPixels = Mathf.Max(0.0f, m_MinimumSplatRadiusPixels),
                 CutoutHash = CalculateCutoutHash(objectToWorld),
                 RenderDataVersion = m_RenderDataVersion,
+                AttributeRevision = m_SourceFrame.AttributeRevision,
+                NearClip = cam.nearClipPlane,
             };
         }
 
@@ -1170,6 +1201,7 @@ namespace Gaussians.ThreeD
             bool settingsChanged = !state.HasSignature ||
                                    state.BackToFront != backToFront ||
                                    state.RenderDataVersion != m_RenderDataVersion ||
+                                   state.PositionRevision != m_SourceFrame.PositionRevision ||
                                    state.SortNthFrame != m_SortNthFrame;
             bool matrixChanged = !state.HasSignature || !state.MatrixMV.Equals(matrixMV);
             bool renderedThisFrame = state.HasSignature && state.LastFrame == frame;
@@ -1192,6 +1224,7 @@ namespace Gaussians.ThreeD
             state.HasSignature = true;
             state.MatrixMV = matrixMV;
             state.RenderDataVersion = m_RenderDataVersion;
+            state.PositionRevision = m_SourceFrame.PositionRevision;
             state.SortNthFrame = m_SortNthFrame;
             resources.SortState = state;
             return shouldSort;
@@ -1220,6 +1253,7 @@ namespace Gaussians.ThreeD
             cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixObjectToWorld, objectToWorld);
             cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixWorldToObject, transform.worldToLocalMatrix);
             var state = GaussianSplatCameraState.ForCamera(cam);
+            cmb.SetComputeFloatParam(m_CSSplatUtilities, "_SplatNearClip", cam.nearClipPlane);
             cmb.SetComputeFloatParam(m_CSSplatUtilities, Props.SplatScale, m_SplatScale);
             cmb.SetComputeFloatParam(m_CSSplatUtilities, Props.SplatOpacityScale, m_OpacityScale);
             cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SHOrder, m_SHOrder);
@@ -1272,6 +1306,7 @@ namespace Gaussians.ThreeD
                 cameraResources.SortKeysInitialized = true;
             }
 
+            BindSource(cmd, m_CSSplatUtilities, (int)KernelIndices.CalcDistances);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatSortDistances,
                 cameraResources.GpuSortDistances);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatSortKeys,
@@ -1436,7 +1471,7 @@ namespace Gaussians.ThreeD
 
         bool EnsureEditingBuffers()
         {
-            if (!HasValidAsset || !HasValidRenderSetup)
+            if (!CanEditSplats || !HasValidAsset || !HasValidRenderSetup)
                 return false;
 
             if (m_GpuEditSelected == null)
@@ -1464,6 +1499,7 @@ namespace Gaussians.ThreeD
 
         public void EditStorePosMouseDown()
         {
+            if (!CanEditSplats) return;
             if (m_GpuEditPosMouseDown == null)
             {
                 m_GpuEditPosMouseDown = new GraphicsBuffer(m_GpuPosData.target | GraphicsBuffer.Target.CopyDestination, m_GpuPosData.count, m_GpuPosData.stride) {name = "GaussianSplatEditPosMouseDown"};
@@ -1472,6 +1508,7 @@ namespace Gaussians.ThreeD
         }
         public void EditStoreOtherMouseDown()
         {
+            if (!CanEditSplats) return;
             if (m_GpuEditOtherMouseDown == null)
             {
                 m_GpuEditOtherMouseDown = new GraphicsBuffer(m_GpuOtherData.target | GraphicsBuffer.Target.CopyDestination, m_GpuOtherData.count, m_GpuOtherData.stride) {name = "GaussianSplatEditOtherMouseDown"};
@@ -1634,6 +1671,7 @@ namespace Gaussians.ThreeD
 
         public void EditSetSplatCount(int newSplatCount)
         {
+            if (!CanEditSplats) return;
             if (newSplatCount <= 0 || newSplatCount > GaussianSplat3DAsset.kMaxSplats)
             {
                 Debug.LogError($"Invalid new splat count: {newSplatCount}");
@@ -1679,7 +1717,8 @@ namespace Gaussians.ThreeD
             m_GpuPosData.Dispose();
             m_GpuOtherData.Dispose();
             m_GpuSHData.Dispose();
-            DestroyImmediate(m_GpuColorData);
+            if (m_GpuColorData != Texture2D.blackTexture) DestroyImmediate(m_GpuColorData);
+            m_GpuColorData = null;
             DisposeCameraRenderResources();
 
             m_GpuEditSelected?.Dispose();
@@ -1704,6 +1743,7 @@ namespace Gaussians.ThreeD
 
         public void EditCopySplatsInto(GaussianSplat3DRenderer dst, int copySrcStartIndex, int copyDstStartIndex, int copyCount)
         {
+            if (!CanEditSplats || !dst || !dst.CanEditSplats) return;
             EditCopySplats(
                 dst.transform,
                 dst.m_GpuPosData, dst.m_GpuOtherData, dst.m_GpuSHData, dst.m_GpuColorData, dst.m_GpuEditDeleted,

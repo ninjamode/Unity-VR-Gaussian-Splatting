@@ -36,6 +36,33 @@ namespace Gaussians.ThreeD
         }
 
 
+        // Optional lossless source for canonical models. No timing or inference dependency.
+        [SerializeField] TextAsset m_FloatSplats;
+        [SerializeField] TextAsset m_FloatSH;
+        [SerializeField] int m_FloatSHDegree;
+        [SerializeField] GaussianSplatSHStorage m_FloatSHStorage;
+        public GaussianSplatSHStorage floatSHStorage => m_FloatSHStorage;
+        public bool isFloatSource => m_FloatSplats != null;
+        public TextAsset floatSplats => m_FloatSplats;
+        public TextAsset floatSH => m_FloatSH;
+        public int floatSHDegree => m_FloatSHDegree;
+        public bool hasValidFloatData => isFloatSource && m_FloatSH && m_FloatSHDegree >= 0 && m_FloatSHDegree <= 3 &&
+            m_FloatSplats.dataSize == (long)m_SplatCount * 48 &&
+            m_FloatSH.dataSize == (long)m_SplatCount * GaussianSplat3DData.SHWordsPerSplat((m_FloatSHDegree + 1) * (m_FloatSHDegree + 1), m_FloatSHStorage) * 4;
+
+        public void InitializeFloat(int count, int shDegree, TextAsset splats, TextAsset sh,
+            Bounds bounds, Hash128 identity, GaussianSplatSHStorage storage = GaussianSplatSHStorage.Float32)
+        {
+            if (shDegree < 0 || shDegree > 3) throw new ArgumentOutOfRangeException(nameof(shDegree));
+            Initialize(count, VectorFormat.Float32, VectorFormat.Float32, ColorFormat.Float32x4,
+                SHFormat.Float32, bounds.min, bounds.max, null);
+            m_FloatSplats = splats; m_FloatSH = sh; m_FloatSHDegree = shDegree;
+            m_FloatSHStorage = storage;
+            m_DataHash = identity;
+            SetAssetFiles(null, null, null, null, null);
+            SetRenderBounds(bounds.min, bounds.max);
+        }
+
         public int formatVersion => m_FormatVersion;
         public int splatCount => m_SplatCount;
         public Vector3 boundsMin => m_BoundsMin;

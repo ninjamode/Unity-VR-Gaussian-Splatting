@@ -1,0 +1,2 @@
+# Add to the existing training environment; keep its PyTorch and NumPy versions.
+onnx>=1.13,<2

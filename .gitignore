@@ -31,3 +31,9 @@ Desktop.ini
 # Other
 docs/
 docs.meta
+
+# Python generated files
+__pycache__/
+__pycache__.meta
+*.py[cod]
+*.py[cod].meta

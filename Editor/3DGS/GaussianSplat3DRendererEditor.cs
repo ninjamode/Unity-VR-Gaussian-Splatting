@@ -145,6 +145,10 @@ namespace Gaussians.ThreeD.Editor
                 validAndEnabled = false;
             }
 
+            if (!gs.CanEditSplats) EditorGUILayout.PropertyField(m_PropCutouts, true);
+            if (validAndEnabled && !gs.CanEditSplats)
+                EditorGUILayout.HelpBox("This canonical model has stable Gaussian IDs. Per-Gaussian editing and merging are unavailable; transforms and cutouts remain supported.", MessageType.Info);
+            validAndEnabled &= Array.TrueForAll(targets, item => ((GaussianSplat3DRenderer)item).CanEditSplats);
             if (validAndEnabled && targets.Length == 1)
             {
                 EditCameras(gs);

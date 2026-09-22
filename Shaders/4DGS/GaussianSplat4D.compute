@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: MIT
+#pragma kernel FillTimes
+#pragma kernel Activate
+#include "GaussianSplat4D.hlsl"
+
+uint _Count, _CoefficientCount, _WriteSH;
+float _ModelTime;
+RWStructuredBuffer<float> _Times;
+StructuredBuffer<float> _Positions, _LogScales, _Rotations, _OpacityLogits, _RawSH;
+RWStructuredBuffer<Gaussian4D> _Splats;
+RWStructuredBuffer<uint> _SH;
+uint _SHStorage;
+
+float ReadOutputSH(uint id, uint k) { return _RawSH[id * _CoefficientCount * 3 + k]; }
+[numthreads(64,1,1)]
+void FillTimes(uint id : SV_DispatchThreadID)
+{
+    if (id < _Count) _Times[id] = _ModelTime;
+}
+
+[numthreads(64,1,1)]
+void Activate(uint id : SV_DispatchThreadID)
+{
+    if (id >= _Count) return;
+    Gaussian4D s;
+    s.positionOpacity.xyz = float3(_Positions[id*3], _Positions[id*3+1], _Positions[id*3+2]);
+    float opacity = _OpacityLogits[id];
+    s.positionOpacity.w = opacity >= 0 ? rcp(1 + exp(-opacity)) : exp(opacity) / (1 + exp(opacity));
+    s.scale = float4(exp(float3(_LogScales[id*3], _LogScales[id*3+1], _LogScales[id*3+2])), 0);
+    float4 q = float4(_Rotations[id*4+1], _Rotations[id*4+2], _Rotations[id*4+3], _Rotations[id*4]);
+    float norm = dot(q,q);
+    bool valid = norm > 1e-24 && isfinite(norm) && all(isfinite(s.scale)) && all(isfinite(s.positionOpacity));
+    s.rotation = valid ? q * rsqrt(norm) : float4(0,0,0,1);
+    if (!valid) { s.positionOpacity = 0; s.scale = 0; }
+    _Splats[id] = s;
+    if (_WriteSH != 0)
+    {
+        uint components = _CoefficientCount * 3;
+        if (_SHStorage == 0)
+        {
+            for (uint component = 0; component < components; ++component)
+                _SH[id * components + component] = asuint(ReadOutputSH(id, component));
+        }
+        else
+        {
+            for (uint k = 0; k < components; k += 2)
+            {
+                float a = ReadOutputSH(id, k);
+                float b = k + 1 < components ? ReadOutputSH(id, k + 1) : 0;
+                _SH[id * ((components + 1) / 2) + k / 2] = f32tof16(clamp(a,-65504,65504)) | (f32tof16(clamp(b,-65504,65504)) << 16);
+            }
+        }
+    }
+}

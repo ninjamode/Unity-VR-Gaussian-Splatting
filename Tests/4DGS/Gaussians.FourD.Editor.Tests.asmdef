@@ -1,0 +1,35 @@
+{
+  "name": "Gaussians.FourD.Editor.Tests",
+  "references": [
+    "Gaussians.Core",
+    "Gaussians.FourD",
+    "Gaussians.FourD.Editor",
+    "Gaussians.FourD.Rendering",
+    "Gaussians.FourD.Inference",
+    "Gaussians.ThreeD",
+    "Unity.InferenceEngine"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "nunit.framework.dll",
+    "Google.Protobuf_Packed.dll",
+    "Newtonsoft.Json.dll"
+  ],
+  "defineConstraints": [
+    "GAUSSIANS_INFERENCE"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.unity.ai.inference",
+      "expression": "[2.6,3.0)",
+      "define": "GAUSSIANS_INFERENCE"
+    }
+  ],
+  "autoReferenced": false
+}

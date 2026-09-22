@@ -52,6 +52,7 @@ float4x4 _ProjectionMatrix;
 uint _ViewDataOffset;
 uint _SortDescending;
 float _MinimumSplatRadiusPixels;
+float _SplatNearClip;
 float4 _VecScreenParams;
 float4 _VecWorldSpaceCameraPos;
 int _SelectionMode;
@@ -119,61 +120,13 @@ uint _SplatBitsValid;
 
 void DecomposeCovariance(float3 cov2d, out float2 v1, out float2 v2)
 {
-    #if 0 // does not quite give the correct results?
-
-    // https://jsfiddle.net/mattrossman/ehxmtgw6/
-    // References:
-    // - https://www.youtube.com/watch?v=e50Bj7jn9IQ
-    // - https://en.wikipedia.org/wiki/Eigenvalue_algorithm#2%C3%972_matrices
-    // - https://people.math.harvard.edu/~knill/teaching/math21b2004/exhibits/2dmatrices/index.html
-    float a = cov2d.x;
-    float b = cov2d.y;
-    float d = cov2d.z;
-    float det = a * d - b * b; // matrix is symmetric, so "c" is same as "b"
-    float trace = a + d;
-
-    float mean = 0.5 * trace;
-    float dist = sqrt(mean * mean - det);
-
-    float lambda1 = mean + dist; // 1st eigenvalue
-    float lambda2 = mean - dist; // 2nd eigenvalue
-
-    if (b == 0) {
-        // https://twitter.com/the_ross_man/status/1706342719776551360
-        if (a > d) v1 = float2(1, 0);
-        else v1 = float2(0, 1);
-    } else
-        v1 = normalize(float2(b, d - lambda2));
-
-    v1.y = -v1.y;
-    // The 2nd eigenvector is just a 90 degree rotation of the first since Gaussian axes are orthogonal
-    v2 = float2(v1.y, -v1.x);
-
-    // scaling components
-    v1 *= sqrt(lambda1);
-    v2 *= sqrt(lambda2);
-
-    float radius = 1.5;
-    v1 *= radius;
-    v2 *= radius;
-
-    #else
-
-    // same as in antimatter15/splat
-    float diag1 = cov2d.x, diag2 = cov2d.z, offDiag = cov2d.y;
-    float mid = 0.5f * (diag1 + diag2);
-    float radius = length(float2((diag1 - diag2) / 2.0, offDiag));
-    float lambda1 = mid + radius;
-    float lambda2 = max(mid - radius, 0.1);
-    float2 diag = float2(offDiag, lambda1 - diag1);
-    // Isotropic/axis-aligned covariance has no unique first eigenvector.
-    float2 diagVec = dot(diag, diag) > 1.0e-20 ? normalize(diag) : float2(1, 0);
-    diagVec.y = -diagVec.y;
-    float maxSize = 4096.0;
-    v1 = min(sqrt(2.0 * lambda1), maxSize) * diagVec;
-    v2 = min(sqrt(2.0 * lambda2), maxSize) * float2(diagVec.y, -diagVec.x);
-
-    #endif
+    float mid = 0.5 * (cov2d.x + cov2d.z);
+    float radius = length(float2(0.5 * (cov2d.x - cov2d.z), cov2d.y));
+    float2 diagonal = float2(cov2d.y, mid + radius - cov2d.x);
+    float2 direction = dot(diagonal, diagonal) > 1.0e-20 ? normalize(diagonal) : float2(1, 0);
+    // The homogeneous Jacobian already includes GPU projection orientation.
+    v1 = direction * min(sqrt(2 * max(mid + radius, 0)), 4096);
+    v2 = float2(-direction.y, direction.x) * min(sqrt(2 * max(mid - radius, 0)), 4096);
 }
 
 bool IsSplatCut(float3 pos)
@@ -235,7 +188,9 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
     }
 
     view.pos = centerClipPos;
-    bool behindCam = centerClipPos.w <= 0;
+    bool behindCam = centerClipPos.w <= 0 || mul(_MatrixMV, float4(splat.pos, 1)).z >= -_SplatNearClip ||
+        splat.opacity <= 0 || !all(isfinite(float4(splat.pos, splat.opacity)));
+    if (behindCam) view.pos.w = 0;
     if (!behindCam)
     {
         float4 boxRot = splat.rot;

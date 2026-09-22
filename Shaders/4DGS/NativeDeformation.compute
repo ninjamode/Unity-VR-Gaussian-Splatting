@@ -1,0 +1,134 @@
+#pragma kernel CacheSpatial
+#pragma kernel Features
+#pragma kernel Dense
+#pragma kernel Compose
+#include "GaussianSplat4D.hlsl"
+
+StructuredBuffer<float> _Parameters;
+StructuredBuffer<int4> _Planes; // parameter offset, width, height, channels
+StructuredBuffer<float> _Positions, _LogScales, _Rotations, _OpacityLogits, _RawSH;
+RWStructuredBuffer<float2> _Spatial;
+RWStructuredBuffer<float> _Output;
+StructuredBuffer<float> _Input;
+StructuredBuffer<float> _Deltas;
+RWStructuredBuffer<Gaussian4D> _Splats;
+RWStructuredBuffer<uint> _SH;
+uint _SHStorage;
+uint _Count, _FeatureWidth, _Channels, _CoefficientCount, _ActiveHeads, _Deform, _ApplyRotation, _WriteSH, _LinearWidth;
+float4 _AabbMax, _NormalizeScale;
+float _Time;
+uint _InputWidth, _OutputWidth, _OutputStride, _OutputOffset, _WeightOffset, _BiasOffset, _Relu;
+
+float SamplePlane(uint plane, uint channel, float2 p)
+{
+    int4 d=_Planes[plane];
+    float2 texel=clamp((p+1)*0.5,0,1)*float2(d.y-1,d.z-1);
+    uint2 a=(uint2)floor(texel), b=min(a+1,uint2(d.y-1,d.z-1));
+    float2 t=texel-a;
+    uint start=d.x+channel*d.y*d.z;
+    return lerp(lerp(_Parameters[start+a.y*d.y+a.x],_Parameters[start+a.y*d.y+b.x],t.x),
+        lerp(_Parameters[start+b.y*d.y+a.x],_Parameters[start+b.y*d.y+b.x],t.x),t.y);
+}
+float3 NormalizedPosition(uint p)
+{
+    return (float3(_Positions[p*3],_Positions[p*3+1],_Positions[p*3+2])-_AabbMax.xyz)*_NormalizeScale.xyz-1;
+}
+float ReadOutputSH(uint id, uint k)
+{
+    uint heads = _Deform != 0 ? _ActiveHeads : 0;
+    return _RawSH[id * _CoefficientCount * 3 + k] + ((heads & 16) != 0 ? _Deltas[id * (11 + _CoefficientCount * 3) + 11 + k] : 0);
+}
+[numthreads(64,1,1)]
+void CacheSpatial(uint3 tid:SV_DispatchThreadID)
+{
+    uint id=tid.x+tid.y*_LinearWidth;
+    if(id>=_Count*_FeatureWidth)return;
+    uint gaussian=id/_FeatureWidth, feature=id%_FeatureWidth, plane=(feature/_Channels)*6, channel=feature%_Channels;
+    float3 p=NormalizedPosition(gaussian);
+    // Preserve source multiplication order: xy*xz, then xt, yz, yt, zt.
+    _Spatial[id]=float2(SamplePlane(plane,channel,p.xy)*SamplePlane(plane+1,channel,p.xz),SamplePlane(plane+3,channel,p.yz));
+}
+[numthreads(64,1,1)]
+void Features(uint3 tid:SV_DispatchThreadID)
+{
+    uint id=tid.x+tid.y*_LinearWidth;
+    if(id>=_Count*_FeatureWidth)return;
+    uint gaussian=id/_FeatureWidth, feature=id%_FeatureWidth, plane=(feature/_Channels)*6, channel=feature%_Channels;
+    float3 p=NormalizedPosition(gaussian);
+    float2 spatial=_Spatial[id];
+    float value=spatial.x*SamplePlane(plane+2,channel,float2(p.x,_Time));
+    value*=spatial.y;
+    value*=SamplePlane(plane+4,channel,float2(p.y,_Time));
+    value*=SamplePlane(plane+5,channel,float2(p.z,_Time));
+    _Output[id]=value;
+}
+
+groupshared float tileInput[8][16];
+groupshared float tileWeights[16][16];
+[numthreads(16,8,1)]
+void Dense(uint3 group:SV_GroupID,uint3 tid:SV_GroupThreadID)
+{
+    uint gaussian=(group.y+group.z*65535)*8+tid.y, neuron=group.x*16+tid.x;
+    float sum=0;
+    for(uint k=0;k<_InputWidth;k+=16)
+    {
+        float input=(gaussian<_Count && k+tid.x<_InputWidth)?_Input[gaussian*_InputWidth+k+tid.x]:0;
+        tileInput[tid.y][tid.x]=_Relu!=0?max(input,0):input;
+        tileWeights[tid.x][tid.y]=(neuron<_OutputWidth && k+tid.y<_InputWidth)?_Parameters[_WeightOffset+neuron*_InputWidth+k+tid.y]:0;
+        tileWeights[tid.x][tid.y+8]=(neuron<_OutputWidth && k+tid.y+8<_InputWidth)?_Parameters[_WeightOffset+neuron*_InputWidth+k+tid.y+8]:0;
+        GroupMemoryBarrierWithGroupSync();
+        [unroll] for(uint j=0;j<16;j++) sum+=tileInput[tid.y][j]*tileWeights[tid.x][j];
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if(gaussian<_Count && neuron<_OutputWidth)
+        _Output[gaussian*_OutputStride+_OutputOffset+neuron]=sum+_Parameters[_BiasOffset+neuron];
+}
+
+[numthreads(64,1,1)]
+void Compose(uint3 tid:SV_DispatchThreadID)
+{
+    uint id=tid.x+tid.y*_LinearWidth;
+    if(id>=_Count)return;
+    uint offset=id*(11+_CoefficientCount*3);
+    uint heads=_Deform!=0?_ActiveHeads:0;
+    Gaussian4D s;
+    float3 pos=float3(_Positions[id*3],_Positions[id*3+1],_Positions[id*3+2]);
+    float3 scale=float3(_LogScales[id*3],_LogScales[id*3+1],_LogScales[id*3+2]);
+    float4 q=float4(_Rotations[id*4+1],_Rotations[id*4+2],_Rotations[id*4+3],_Rotations[id*4]);
+    float opacity=_OpacityLogits[id];
+    if((heads&1)!=0)pos+=float3(_Deltas[offset],_Deltas[offset+1],_Deltas[offset+2]);
+    if((heads&2)!=0)scale+=float3(_Deltas[offset+3],_Deltas[offset+4],_Deltas[offset+5]);
+    if((heads&4)!=0)
+    {
+        float4 d=float4(_Deltas[offset+7],_Deltas[offset+8],_Deltas[offset+9],_Deltas[offset+6]);
+        q=_ApplyRotation!=0?float4(q.w*d.xyz+d.w*q.xyz+cross(q.xyz,d.xyz),q.w*d.w-dot(q.xyz,d.xyz)):q+d;
+        // Upstream normalizes multiplicative rotation before renderer activation.
+        if(_ApplyRotation!=0)q/=sqrt(dot(q,q));
+    }
+    if((heads&8)!=0)opacity+=_Deltas[offset+10];
+    s.positionOpacity=float4(pos,opacity>=0?rcp(1+exp(-opacity)):exp(opacity)/(1+exp(opacity)));
+    s.scale=float4(exp(scale),0);
+    float norm=dot(q,q);
+    bool valid=norm>1e-24 && isfinite(norm) && all(isfinite(s.scale)) && all(isfinite(s.positionOpacity));
+    s.rotation=valid?q*rsqrt(norm):float4(0,0,0,1);
+    if(!valid){s.positionOpacity=0;s.scale=0;}
+    _Splats[id]=s;
+    if (_WriteSH != 0)
+    {
+        uint components = _CoefficientCount * 3;
+        if (_SHStorage == 0)
+        {
+            for (uint component = 0; component < components; ++component)
+                _SH[id * components + component] = asuint(ReadOutputSH(id, component));
+        }
+        else
+        {
+            for (uint k = 0; k < components; k += 2)
+            {
+                float a = ReadOutputSH(id, k);
+                float b = k + 1 < components ? ReadOutputSH(id, k + 1) : 0;
+                _SH[id * ((components + 1) / 2) + k / 2] = f32tof16(clamp(a,-65504,65504)) | (f32tof16(clamp(b,-65504,65504)) << 16);
+            }
+        }
+    }
+}

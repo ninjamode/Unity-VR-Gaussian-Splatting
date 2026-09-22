@@ -1,0 +1,12 @@
+#pragma kernel CopyOutput
+
+StructuredBuffer<float> _InferenceOutput;
+RWStructuredBuffer<float> _ValidationCopy;
+uint _Count;
+
+[numthreads(64, 1, 1)]
+void CopyOutput(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _Count)
+        _ValidationCopy[id.x] = _InferenceOutput[id.x];
+}

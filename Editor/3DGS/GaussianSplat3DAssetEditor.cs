@@ -46,6 +46,14 @@ namespace Gaussians.ThreeD.Editor
             EditorGUILayout.IntField("Version", gs.formatVersion);
             GUI.backgroundColor = prevBackColor;
 
+            if (gs.isFloatSource)
+            {
+                EditorGUILayout.TextField("Storage", "FP32 geometry / " + gs.floatSHStorage + " SH");
+                EditorGUILayout.IntField("SH Degree", gs.floatSHDegree);
+                EditorGUILayout.TextField("Memory", EditorUtility.FormatBytes(gs.floatSplats.dataSize + (gs.floatSH ? gs.floatSH.dataSize : 0)));
+                EditorGUILayout.TextField("Data Hash", gs.dataHash.ToString());
+                return;
+            }
             long sizePos = gs.posData != null ? gs.posData.dataSize : 0;
             long sizeOther = gs.otherData != null ? gs.otherData.dataSize : 0;
             long sizeCol = gs.colorData != null ? gs.colorData.dataSize : 0;

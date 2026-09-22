@@ -55,32 +55,17 @@ void CalcCovariance3D(float3x3 rotMat, out float3 sigma0, out float3 sigma1)
 // from "EWA Splatting" (Zwicker et al 2002) eq. 31
 float3 CalcCovariance2D(float3 worldPos, float3 cov3d0, float3 cov3d1, float4x4 matrixV, float4x4 matrixP, float4 screenParams)
 {
-    float4x4 viewMatrix = matrixV;
-    float3 viewPos = mul(viewMatrix, float4(worldPos, 1)).xyz;
-
-    // this is needed in order for splats that are visible in view but clipped "quite a lot" to work
-    float aspect = matrixP._m00 / matrixP._m11;
-    float tanFovX = rcp(matrixP._m00);
-    float tanFovY = rcp(matrixP._m11 * aspect);
-    float limX = 1.3 * tanFovX;
-    float limY = 1.3 * tanFovY;
-    viewPos.x = clamp(viewPos.x / viewPos.z, -limX, limX) * viewPos.z;
-    viewPos.y = clamp(viewPos.y / viewPos.z, -limY, limY) * viewPos.z;
-
-    float focal = screenParams.x * matrixP._m00 / 2;
-
-    float3x3 J = float3x3(
-        focal / viewPos.z, 0, -(focal * viewPos.x) / (viewPos.z * viewPos.z),
-        0, focal / viewPos.z, -(focal * viewPos.y) / (viewPos.z * viewPos.z),
-        0, 0, 0
-    );
-    float3x3 W = (float3x3)viewMatrix;
-    float3x3 T = mul(J, W);
+    float4 viewPos = mul(matrixV, float4(worldPos, 1));
+    float4 clip = mul(matrixP, viewPos);
+    float2 ndc = clamp(clip.xy / clip.w, -1.3, 1.3);
+    float3 jx = (matrixP[0].xyz - ndc.x * matrixP[3].xyz) / clip.w * screenParams.x * 0.5;
+    float3 jy = (matrixP[1].xyz - ndc.y * matrixP[3].xyz) / clip.w * screenParams.y * 0.5;
+    float3x3 J = float3x3(jx, jy, float3(0, 0, 0));
+    float3x3 T = mul(J, (float3x3)matrixV);
     float3x3 V = float3x3(
         cov3d0.x, cov3d0.y, cov3d0.z,
         cov3d0.y, cov3d1.x, cov3d1.y,
-        cov3d0.z, cov3d1.y, cov3d1.z
-    );
+        cov3d0.z, cov3d1.y, cov3d1.z);
     float3x3 cov = mul(T, mul(V, transpose(T)));
 
     // Low pass filter to make each splat at least 1px size.
@@ -315,6 +300,23 @@ SplatBufferDataType _SplatOther;
 SplatBufferDataType _SplatSH;
 Texture2D _SplatColor;
 uint _SplatFormat;
+struct GaussianFloatAttributes { float4 positionOpacity; float4 scale; float4 rotation; };
+StructuredBuffer<GaussianFloatAttributes> _SplatFloatAttributes;
+StructuredBuffer<uint> _SplatFloatSH;
+uint _SplatSHStorage;
+uint _SplatFloatSource, _SplatCoefficientCount;
+float LoadSourceSHComponent(uint index, uint component)
+{
+    if (_SplatSHStorage == 0) return asfloat(_SplatFloatSH[index * _SplatCoefficientCount * 3 + component]);
+    uint word = _SplatFloatSH[index * ((_SplatCoefficientCount * 3 + 1) / 2) + component / 2];
+    return f16tof32((word >> ((component & 1) * 16)) & 0xffff);
+}
+float3 LoadFloatSH(uint index, uint coefficient)
+{
+    if (coefficient >= _SplatCoefficientCount) return 0;
+    uint p = coefficient * 3;
+    return float3(LoadSourceSHComponent(index,p), LoadSourceSHComponent(index,p+1), LoadSourceSHComponent(index,p+2));
+}
 
 // Match GaussianSplatAsset.VectorFormat
 #define VECTOR_FMT_32F 0
@@ -393,6 +395,7 @@ float3 LoadAndDecodeVector(SplatBufferDataType dataBuffer, uint addrU, uint fmt)
 
 float3 LoadSplatPosValue(uint index)
 {
+    if (_SplatFloatSource != 0) return _SplatFloatAttributes[index].positionOpacity.xyz;
     uint fmt = _SplatFormat & 0xFF;
     uint stride = 0;
     if (fmt == VECTOR_FMT_32F)
@@ -408,6 +411,7 @@ float3 LoadSplatPosValue(uint index)
 
 float3 LoadSplatPos(uint idx)
 {
+    if (_SplatFloatSource != 0) return _SplatFloatAttributes[idx].positionOpacity.xyz;
     float3 pos = LoadSplatPosValue(idx);
     uint chunkIdx = idx / kChunkSize;
     if (chunkIdx < _SplatChunkCount)
@@ -428,6 +432,32 @@ half4 LoadSplatColTex(uint3 coord)
 SplatData LoadSplatData(uint idx)
 {
     SplatData s = (SplatData)0;
+
+    if (_SplatFloatSource != 0)
+    {
+        GaussianFloatAttributes value = _SplatFloatAttributes[idx];
+        s.pos = value.positionOpacity.xyz;
+        s.opacity = value.positionOpacity.w;
+        s.scale = value.scale.xyz;
+        s.rot = value.rotation;
+        s.sh.col = 0.5 + 0.2820947918 * LoadFloatSH(idx, 0);
+        s.sh.sh1 = LoadFloatSH(idx, 1);
+        s.sh.sh2 = LoadFloatSH(idx, 2);
+        s.sh.sh3 = LoadFloatSH(idx, 3);
+        s.sh.sh4 = LoadFloatSH(idx, 4);
+        s.sh.sh5 = LoadFloatSH(idx, 5);
+        s.sh.sh6 = LoadFloatSH(idx, 6);
+        s.sh.sh7 = LoadFloatSH(idx, 7);
+        s.sh.sh8 = LoadFloatSH(idx, 8);
+        s.sh.sh9 = LoadFloatSH(idx, 9);
+        s.sh.sh10 = LoadFloatSH(idx, 10);
+        s.sh.sh11 = LoadFloatSH(idx, 11);
+        s.sh.sh12 = LoadFloatSH(idx, 12);
+        s.sh.sh13 = LoadFloatSH(idx, 13);
+        s.sh.sh14 = LoadFloatSH(idx, 14);
+        s.sh.sh15 = LoadFloatSH(idx, 15);
+        return s;
+    }
 
     // figure out raw data offsets / locations
     uint3 coord = SplatIndexToPixelIndex(idx);
