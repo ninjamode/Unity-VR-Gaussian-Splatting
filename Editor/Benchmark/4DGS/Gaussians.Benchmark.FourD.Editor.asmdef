@@ -1,0 +1,8 @@
+{
+    "name": "Gaussians.Benchmark.FourD.Editor",
+    "references": ["Gaussians.Benchmark", "Gaussians.Benchmark.FourD"],
+    "includePlatforms": ["Editor"],
+    "defineConstraints": ["GAUSSIANS_INFERENCE"],
+    "versionDefines": [{"name": "com.unity.ai.inference", "expression": "[2.6,3.0)", "define": "GAUSSIANS_INFERENCE"}],
+    "autoReferenced": true
+}

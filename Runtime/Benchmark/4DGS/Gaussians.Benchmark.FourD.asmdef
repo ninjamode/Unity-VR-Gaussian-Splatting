@@ -1,0 +1,22 @@
+{
+  "name": "Gaussians.Benchmark.FourD",
+  "references": [
+    "Gaussians.Benchmark",
+    "Gaussians.FourD.Rendering",
+    "Gaussians.FourD",
+    "Gaussians.FourD.Inference",
+    "Gaussians.ThreeD",
+    "Unity.InferenceEngine"
+  ],
+  "defineConstraints": [
+    "GAUSSIANS_INFERENCE"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.unity.ai.inference",
+      "expression": "[2.6,3.0)",
+      "define": "GAUSSIANS_INFERENCE"
+    }
+  ],
+  "autoReferenced": true
+}

@@ -1,0 +1,5 @@
+{
+  "name": "Gaussians.Benchmark",
+  "references": ["Gaussians.TwoD", "Gaussians.ThreeD"],
+  "autoReferenced": true
+}

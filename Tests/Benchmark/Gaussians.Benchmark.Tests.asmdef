@@ -1,0 +1,7 @@
+{
+  "name": "Gaussians.Benchmark.Tests",
+  "references": ["Gaussians.Benchmark", "Gaussians.TwoD", "Gaussians.ThreeD"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "autoReferenced": false
+}

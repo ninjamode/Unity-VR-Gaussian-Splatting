@@ -1,0 +1,6 @@
+{
+  "name": "Gaussians.Benchmark.Editor",
+  "references": ["Gaussians.Benchmark", "Gaussians.TwoD", "Gaussians.ThreeD"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}
