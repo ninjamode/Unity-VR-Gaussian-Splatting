@@ -4,7 +4,7 @@ Gaussian Splatting for Unity, with a focus on Mixed Reality. Import and render t
 
 This adds performance improvements targeting XR, 2DGS and 4DGS support, instanced and foveated rendering, among others. Now distributed as a Unity package that can directly be installed and used.
 
-**NOTE**<br>
+**NOTE:**<br>
 This is a research project building on [UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting). No support.
 
 ## Installation
@@ -37,7 +37,7 @@ Built-in doesnt need any special configuration, but is slower. HDRP is mostly un
 
 Same as with 3DGS, create 2D asset, add **2D Splat Renderer**, add the **Gaussian Splat 2D URP Feature or HDRP pass** to the camera asset.
 
-## 4DGS
+### 4DGS
 
 A little export helper is necessary to have all the data for runtime use in unity. Supported models use the HexPlane + MLP architecture from [hustvl/4DGaussians](https://github.com/hustvl/4DGaussians).
 
