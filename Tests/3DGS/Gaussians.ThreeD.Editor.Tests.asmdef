@@ -1,0 +1,7 @@
+{
+  "name": "Gaussians.ThreeD.Editor.Tests",
+  "references": ["Gaussians.Core", "Gaussians.ThreeD", "Gaussians.ThreeD.Editor", "Unity.Collections"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "autoReferenced": false
+}

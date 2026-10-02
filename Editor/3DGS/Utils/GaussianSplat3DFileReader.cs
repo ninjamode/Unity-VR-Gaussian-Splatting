@@ -47,15 +47,20 @@ namespace Gaussians.ThreeD.Editor.Utils
         {
             if (isPLY(filePath))
             {
-                NativeArray<byte> plyRawData;
-                List<(string, PLYFileReader.ElementType)> attributes;
-                PLYFileReader.ReadFile(filePath, out var splatCount, out var vertexStride, out attributes, out plyRawData);
-                string attrError = CheckPLYAttributes(attributes);
-                if (!string.IsNullOrEmpty(attrError))
-                    throw new IOException($"PLY file is probably not a Gaussian Splat file? Missing properties: {attrError}");
-                splats = PLYDataToSplats(plyRawData, splatCount, vertexStride, attributes);
-                ReorderSHs(splatCount, (float*)splats.GetUnsafePtr());
-                LinearizeData(splats);
+                PLYFileReader.ReadFile(filePath, out var splatCount, out var vertexStride, out var attributes, out var plyRawData);
+                using (plyRawData)
+                {
+                    string attrError = CheckPLYAttributes(attributes);
+                    if (!string.IsNullOrEmpty(attrError))
+                        throw new IOException($"PLY file is probably not a Gaussian Splat file? Missing properties: {attrError}");
+                    splats = PLYDataToSplats(plyRawData, splatCount, vertexStride, attributes);
+                    try
+                    {
+                        ReorderSHs(splatCount, (float*)splats.GetUnsafePtr());
+                        LinearizeData(splats);
+                    }
+                    catch { splats.Dispose(); splats = default; throw; }
+                }
                 return;
             }
             if (isSPZ(filePath))
@@ -164,8 +169,12 @@ namespace Gaussians.ThreeD.Editor.Utils
             }
             
             NativeArray<InputSplatData> dst = new NativeArray<InputSplatData>(count, Allocator.Persistent);
-            ReorderPLYData(count, (byte*)input.GetUnsafeReadOnlyPtr(), stride, (byte*)dst.GetUnsafePtr(), UnsafeUtility.SizeOf<InputSplatData>(), (int*)srcOffsets.GetUnsafeReadOnlyPtr());
-            return dst;
+            try
+            {
+                ReorderPLYData(count, (byte*)input.GetUnsafeReadOnlyPtr(), stride, (byte*)dst.GetUnsafePtr(), UnsafeUtility.SizeOf<InputSplatData>(), (int*)srcOffsets.GetUnsafeReadOnlyPtr());
+                return dst;
+            }
+            catch { dst.Dispose(); throw; }
         }
 
         [BurstCompile]

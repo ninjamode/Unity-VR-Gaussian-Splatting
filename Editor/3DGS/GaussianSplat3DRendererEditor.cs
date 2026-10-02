@@ -38,6 +38,7 @@ namespace Gaussians.ThreeD.Editor
         SerializedProperty m_PropCSSplatUtilities;
 
         bool m_ResourcesExpanded = false;
+        bool m_AdvancedExpanded;
         int m_CameraIndex = 0;
 
         bool m_ExportBakeTransform;
@@ -106,27 +107,43 @@ namespace Gaussians.ThreeD.Editor
 
             EditorGUILayout.Space();
             GUILayout.Label("Render Options", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_RenderPath"));
-            if (serializedObject.FindProperty("m_RenderPath").hasMultipleDifferentValues ||
-                serializedObject.FindProperty("m_RenderPath").intValue == (int)GaussianSplat3DRenderer.RenderPath.DirectTransparent)
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_ConvertGammaToLinear"));
-            else
-                EditorGUILayout.HelpBox("Composite gamma conversion applies to the complete 3D group. Configure it on the URP feature, HDRP pass, or the Built-in Camera Settings component.", MessageType.Info);
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_WriteDepth"), new GUIContent("Write Depth (URP Only)", "Adds a draw writing approximate splat-center depth after transparent color."));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_AlphaCutoff"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_MinimumSplatRadiusPixels"));
-            EditorGUILayout.PropertyField(m_PropRenderOrder);
-            EditorGUILayout.PropertyField(m_PropSplatScale);
-            EditorGUILayout.PropertyField(m_PropOpacityScale);
-            EditorGUILayout.PropertyField(m_PropSHOrder);
-            EditorGUILayout.PropertyField(m_PropSHOnly);
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_AlphaCutoff"), new GUIContent("Alpha Cutoff", "Minimum fragment opacity retained. Also skips splats whose peak cannot reach this value. Higher values remove faint contributions and shrink bounds."));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_MinimumSplatRadiusPixels"), new GUIContent("Minimum Splat Radius (px)", "Projected three-sigma radius before footprint filtering, in render-target pixels. Zero disables size pruning. Higher values can remove detail; 0.7 is a provisional safeguard for tiny models."));
+            var threshold = serializedObject.FindProperty("m_CompactionThreshold");
+            EditorGUILayout.PropertyField(threshold, new GUIContent("Compaction Threshold", "Rejected splats required to enable compaction and deferred SH. -1: off; 0: always on; positive: automatic using recent visibility. Default 100,000 is experimental."));
+            if (!threshold.hasMultipleDifferentValues) threshold.intValue = Math.Max(-1, threshold.intValue);
+            var precision = serializedObject.FindProperty("m_SortPrecision");
+            EditorGUI.showMixedValue = precision.hasMultipleDifferentValues;
+            EditorGUI.BeginChangeCheck();
+            bool lowPrecision = EditorGUILayout.Toggle(new GUIContent("16-bit Sorting (Experimental)", "Can reduce sorting cost in large environments, but may cause ordering artifacts and can reduce performance in some scenes."), precision.intValue == 16);
+            if (EditorGUI.EndChangeCheck()) precision.intValue = lowPrecision ? 16 : 32;
+            EditorGUI.showMixedValue = false;
             EditorGUILayout.PropertyField(m_PropSortNthFrame);
 
             EditorGUILayout.Space();
-            GUILayout.Label("Debugging Tweaks", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(m_PropRenderMode);
-            if (m_PropRenderMode.intValue is (int)GaussianSplat3DRenderer.RenderMode.DebugPoints or (int)GaussianSplat3DRenderer.RenderMode.DebugPointIndices)
-                EditorGUILayout.PropertyField(m_PropPointDisplaySize);
+            m_AdvancedExpanded = EditorGUILayout.Foldout(m_AdvancedExpanded, "Advanced Options", true, EditorStyles.foldoutHeader);
+            if (m_AdvancedExpanded)
+            {
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_RenderPath"));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_ConvertGammaToLinear"));
+                var depth = serializedObject.FindProperty("m_MinimumSplatDistance");
+                EditorGUILayout.PropertyField(depth, new GUIContent("Minimum View Depth", "Camera-space center depth in world units. Effective minimum is the larger of this value and the rendering camera near plane. Zero uses only the camera near plane."));
+                if (!depth.hasMultipleDifferentValues)
+                {
+                    var camera = Camera.main;
+                    if (camera && camera.isActiveAndEnabled && (camera.cullingMask & (1 << gs.gameObject.layer)) != 0 && camera.nearClipPlane > depth.floatValue)
+                        EditorGUILayout.HelpBox($"Main camera '{camera.name}' has a near plane of {camera.nearClipPlane:g} and will clip farther than this setting. Each camera uses its own near plane.", MessageType.Info);
+                }
+                EditorGUILayout.PropertyField(m_PropRenderOrder);
+                EditorGUILayout.PropertyField(m_PropSplatScale);
+                EditorGUILayout.PropertyField(m_PropOpacityScale);
+                EditorGUILayout.PropertyField(m_PropSHOrder);
+                EditorGUILayout.PropertyField(m_PropSHOnly);
+                EditorGUILayout.PropertyField(m_PropRenderMode);
+                if (m_PropRenderMode.intValue is (int)GaussianSplat3DRenderer.RenderMode.DebugPoints or (int)GaussianSplat3DRenderer.RenderMode.DebugPointIndices)
+                    EditorGUILayout.PropertyField(m_PropPointDisplaySize);
+            }
 
             EditorGUILayout.Space();
             m_ResourcesExpanded = EditorGUILayout.Foldout(m_ResourcesExpanded, "Resources", true, EditorStyles.foldoutHeader);

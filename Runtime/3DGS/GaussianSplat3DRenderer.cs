@@ -106,7 +106,6 @@ namespace Gaussians.ThreeD
             m_ActiveSplats.Clear();
             if (cam.cameraType == CameraType.Preview)
                 return false;
-            // gather all active & valid splat objects
             m_ActiveSplats.Clear();
             foreach (var kvp in m_Splats)
             {
@@ -124,7 +123,6 @@ namespace Gaussians.ThreeD
             if (m_ActiveSplats.Count == 0)
                 return false;
 
-            // sort them by order and depth from camera
             var camTr = cam.transform;
             m_ActiveSplats.Sort((a, b) =>
             {
@@ -159,8 +157,14 @@ namespace Gaussians.ThreeD
             var draws = GatherCompositeDraws(cam, out var composite, convertComposite);
             PrepareCompositeSplats(cam, cmb);
             foreach (var draw in draws)
-                cmb.DrawProcedural(draw.Indices, draw.Matrix, draw.Material, 0,
-                    MeshTopology.Triangles, draw.IndexCount, draw.Count, draw.Properties);
+            {
+                if (draw.IndirectArgs != null)
+                    cmb.DrawProceduralIndirect(draw.Indices, draw.Matrix, draw.Material, 0,
+                        MeshTopology.Triangles, draw.IndirectArgs, 20, draw.Properties);
+                else
+                    cmb.DrawProcedural(draw.Indices, draw.Matrix, draw.Material, 0,
+                        MeshTopology.Triangles, draw.IndexCount, draw.Count, draw.Properties);
+            }
             return composite;
         }
 
@@ -175,14 +179,7 @@ namespace Gaussians.ThreeD
                 var resources = gs.GetCameraRenderResources(cam);
                 if (resources == null)
                     continue;
-                if (gs.ShouldSortForCamera(cam, false))
-                    gs.SortPoints(cmb, cam, gs.transform.localToWorldMatrix, false, resources);
-                if (gs.ShouldPrepareViewForCamera(cam))
-                {
-                    cmb.BeginSample(s_ProfCalcView);
-                    gs.CalcViewData(cmb, cam, resources);
-                    cmb.EndSample(s_ProfCalcView);
-                }
+                gs.PrepareCamera(cmb, cam, false, resources);
             }
         }
 
@@ -230,7 +227,6 @@ namespace Gaussians.ThreeD
                 mpb.SetInteger(GaussianSplat3DRenderer.Props.DisplayIndex, gs.m_RenderMode == GaussianSplat3DRenderer.RenderMode.DebugPointIndices ? 1 : 0);
                 mpb.SetInteger(GaussianSplat3DRenderer.Props.DisplayChunks, gs.m_RenderMode == GaussianSplat3DRenderer.RenderMode.DebugChunkBounds ? 1 : 0);
 
-                // draw
                 int indexCount = 6;
                 int instanceCount = gs.splatCount;
                 if (gs.m_RenderMode is GaussianSplat3DRenderer.RenderMode.DebugBoxes or GaussianSplat3DRenderer.RenderMode.DebugChunkBounds)
@@ -242,6 +238,7 @@ namespace Gaussians.ThreeD
                 {
                     Indices = gs.m_GpuIndexBuffer, Matrix = matrix, Material = displayMat,
                     Properties = mpb, IndexCount = indexCount, Count = instanceCount,
+                    IndirectArgs = gs.GetIndirectArgs(cameraResources),
                 });
             }
             return draws;
@@ -263,22 +260,14 @@ namespace Gaussians.ThreeD
                 if (cameraResources == null)
                     continue;
 
-                var matrix = gs.transform.localToWorldMatrix;
-                if (gs.ShouldSortForCamera(cam, true))
-                    gs.SortPoints(cmb, cam, matrix, true, cameraResources);
-
-                if (gs.ShouldPrepareViewForCamera(cam))
-                {
-                    cmb.BeginSample(s_ProfCalcView);
-                    gs.CalcViewData(cmb, cam, cameraResources);
-                    cmb.EndSample(s_ProfCalcView);
-                }
+                gs.PrepareCamera(cmb, cam, true, cameraResources);
             }
         }
 
         internal sealed class SplatDraw
         {
             internal GraphicsBuffer Indices;
+            internal GraphicsBuffer IndirectArgs;
             internal Matrix4x4 Matrix;
             internal Material Material;
             internal MaterialPropertyBlock Properties;
@@ -317,6 +306,7 @@ namespace Gaussians.ThreeD
                     Material = gs.m_MatSplatsDirect,
                     Properties = properties,
                     Count = gs.splatCount,
+                    IndirectArgs = gs.GetIndirectArgs(resources),
                 });
             }
             return draws;
@@ -377,7 +367,6 @@ namespace Gaussians.ThreeD
                 ? cameraSettings.m_ConvertCompositeGammaToLinear : ConvertCompositeGammaToLinear;
             Material matComposite = SortAndRenderCompositeSplats(cam, m_CommandBuffer, convert);
 
-            // compose
             m_CommandBuffer.BeginSample(s_ProfCompose);
             m_CommandBuffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
             m_CommandBuffer.DrawProcedural(Matrix4x4.identity, matComposite, 0, MeshTopology.Triangles, 3, GaussianRenderTargets.FullscreenInstances(cam));
@@ -408,19 +397,21 @@ namespace Gaussians.ThreeD
         public GaussianSplat3DAsset m_Asset;
 
         [Tooltip("Composite Texture preserves the original front-to-back offscreen accumulation. Direct Transparent sorts back-to-front and submits premultiplied splats to Unity's transparent queue.")]
-        public RenderPath m_RenderPath = RenderPath.CompositeTexture;
+        public RenderPath m_RenderPath = RenderPath.DirectTransparent;
         [Tooltip("Rendering order within the selected render path. Higher values render later/on top. When paths are mixed, the Composite Texture group is always resolved before the Direct Transparent group.")]
         public int m_RenderOrder;
         [Tooltip("Direct Transparent: convert gamma-encoded colors before blending into a Linear project target. Leave off for assets already trained/exported in linear space.")]
         public bool m_ConvertGammaToLinear = true;
         [Tooltip("URP only: adds a draw writing approximate splat-center depth after transparent color for XR reprojection. Does not change color blending or fill empty background pixels.")]
         public bool m_WriteDepth = false;
-        // Historical color cutoff: one 8-bit alpha step. This is a coverage and
+        // One 8-bit alpha step. This is a coverage and
         // quality/performance convention, not a scene-specific depth criterion.
         public const float DefaultAlphaCutoff = 1.0f / 255.0f;
         [Range(0.0f, 1.0f)]
         [Tooltip("Advanced: minimum per-splat fragment opacity retained by BOTH color and depth. Default is 1/255. Higher values remove faint contributions and can reduce blending work, but may thin surfaces or cause popping. This is not accumulated opacity. Zero retains all positive alpha within the existing splat geometry.")]
         public float m_AlphaCutoff = DefaultAlphaCutoff;
+        [Tooltip("Shrink splat quads to the current opacity cutoff without changing the Gaussian falloff. Disable to compare against the original bounds. Applies to color and depth; selected splats retain their full footprint.")]
+        [HideInInspector] public bool m_OpacityAwareBounds = true;
         [Range(0.1f, 2.0f)] [Tooltip("Additional scaling factor for the splats")]
         public float m_SplatScale = 1.0f;
         [Range(0.05f, 20.0f)]
@@ -432,9 +423,49 @@ namespace Gaussians.ThreeD
         public bool m_SHOnly;
         [Range(1,30)] [Tooltip("Sort splats only every N frames")]
         public int m_SortNthFrame = 1;
+        [Tooltip("Compact surviving splat IDs on the GPU, then sort and draw only that population. View changes force a fresh compacted sort regardless of Sort Nth Frame.")]
+        [HideInInspector] public bool m_CompactVisibleSplats;
+        [Tooltip("Enable the optional size, distance and opacity rejection thresholds. Disabling preserves their configured values; mandatory near-plane and invalid-data guards remain.")]
+        [HideInInspector] public bool m_EarlyRejection = true;
+        [Tooltip("Load SH only after visibility checks. Disable to measure the cost of loading SH before rejection.")]
+        [HideInInspector] public bool m_DeferredSHLoading = true;
+        [Tooltip("Reject offscreen splats using conservative footprint bounds before covariance projection. Independent of threshold pruning.")]
+        [HideInInspector] public bool m_EarlyFrustumCulling = true;
+        [Min(-1), Tooltip("Rejected splats required to enable compaction and deferred SH. -1 disables, 0 always enables. Positive values use a recent asynchronous visibility estimate; 100,000 is an experimental default.")]
+        public int m_CompactionThreshold = 100000;
+        // Explicit benchmark overrides bypass the automatic bundle; not normal inspector controls.
+        [HideInInspector] public bool m_OptimizationOverrides;
+        bool UseCompaction(CameraRenderResources resources)
+        {
+            if (m_RenderMode != RenderMode.Splats) return false;
+            if (m_OptimizationOverrides) return m_CompactVisibleSplats;
+            // Latch positive-threshold decisions per frame so a readback callback cannot
+            // change the draw submission mode between pre-cull submission and preparation.
+            if (m_CompactionThreshold <= 0) return m_CompactionThreshold == 0;
+            if (resources.PolicyFrame != Time.frameCount || resources.PolicyThreshold != m_CompactionThreshold)
+            {
+                resources.PolicyFrame = Time.frameCount;
+                resources.PolicyThreshold = m_CompactionThreshold;
+                resources.PolicyCompaction = ShouldCompact(m_CompactionThreshold, resources.HasVisibilityEstimate, resources.RejectedSplats);
+            }
+            return resources.PolicyCompaction;
+        }
+        internal static bool ShouldCompact(int threshold, bool hasEstimate, uint rejected) =>
+            threshold == 0 || (threshold > 0 && hasEstimate && rejected >= (uint)threshold);
+        bool UseDeferredSH(CameraRenderResources resources) => m_OptimizationOverrides ? m_DeferredSHLoading : UseCompaction(resources);
+        float MinimumOpacity => m_OptimizationOverrides ? (m_EarlyRejection ? Mathf.Clamp01(m_MinimumSplatOpacity) : 0) :
+            Mathf.Max(0, Mathf.Clamp01(m_AlphaCutoff) * 0.998f - 5.96046448e-8f);
+        public enum SortPrecision { Bits32 = 32, Bits24 = 24, Bits16 = 16 }
+        [Tooltip("Depth-key precision: 32 retains full precision; 24/16 discard low mantissa bits and use three/two radix passes. Lower precision can cause ordering artifacts.")]
+        public SortPrecision m_SortPrecision = SortPrecision.Bits32;
+        internal int sortKeyBits => m_SortPrecision == SortPrecision.Bits16 ? 16 : m_SortPrecision == SortPrecision.Bits24 ? 24 : 32;
+        [Min(0)] [Tooltip("Minimum camera-space center depth in world units while Early Rejection is enabled. Combined with the camera near plane using the larger distance. Default 0.1 protects against very close splats; zero uses only the camera near plane.")]
+        public float m_MinimumSplatDistance = 0.1f;
+        [Range(0, 1)] [Tooltip("Reject splats below this peak opacity after opacity scaling, before SH loading. Zero disables additional opacity rejection. Selected splats are exempt.")]
+        [HideInInspector] public float m_MinimumSplatOpacity;
         [Min(0.0f)]
         [Tooltip("Cull splats below this projected three-sigma pixel radius, before covariance filtering. Zero preserves existing filtering. Higher values can remove detail or cause popping.")]
-        public float m_MinimumSplatRadiusPixels = 0.0f;
+        public float m_MinimumSplatRadiusPixels = 0.7f;
 
         public RenderMode m_RenderMode = RenderMode.Splats;
         [Range(1.0f,15.0f)] public float m_PointDisplaySize = 3.0f;
@@ -486,6 +517,7 @@ namespace Gaussians.ThreeD
             public Matrix4x4 MatrixMV;
             public int RenderDataVersion;
             public int SortNthFrame;
+            public int SortKeyBits;
             public uint PositionRevision;
         }
 
@@ -495,6 +527,7 @@ namespace Gaussians.ThreeD
             public Matrix4x4 Projection;
             public Matrix4x4 RightView, RightProjection;
             public int ViewCount;
+            public int IndirectInstanceMultiplier;
             public Vector2Int RightScreenSize;
             public bool ConvertColor;
             public Matrix4x4 ObjectToWorld;
@@ -509,10 +542,17 @@ namespace Gaussians.ThreeD
             public int RenderDataVersion;
             public uint AttributeRevision;
             public float NearClip;
+            public float MinimumDistance, MinimumOpacity;
+            public bool DeferredSHLoading;
+            public bool EarlyFrustumCulling, OpacityAwareBounds;
+            public float AlphaCutoff;
 
             public bool Equals(ViewSignature other)
             {
-                return AttributeRevision == other.AttributeRevision && NearClip.Equals(other.NearClip) && RightView.Equals(other.RightView) && RightProjection.Equals(other.RightProjection) &&
+                return EarlyFrustumCulling == other.EarlyFrustumCulling &&
+                       OpacityAwareBounds == other.OpacityAwareBounds && AlphaCutoff.Equals(other.AlphaCutoff) &&
+                       IndirectInstanceMultiplier == other.IndirectInstanceMultiplier && DeferredSHLoading == other.DeferredSHLoading && MinimumDistance.Equals(other.MinimumDistance) && MinimumOpacity.Equals(other.MinimumOpacity) &&
+                       AttributeRevision == other.AttributeRevision && NearClip.Equals(other.NearClip) && RightView.Equals(other.RightView) && RightProjection.Equals(other.RightProjection) &&
                        RightScreenSize.Equals(other.RightScreenSize) && ViewCount == other.ViewCount && ConvertColor == other.ConvertColor && View.Equals(other.View) &&
                        Projection.Equals(other.Projection) &&
                        ObjectToWorld.Equals(other.ObjectToWorld) &&
@@ -533,6 +573,26 @@ namespace Gaussians.ThreeD
             internal GraphicsBuffer GpuSortDistances;
             internal GraphicsBuffer GpuSortKeys;
             internal GraphicsBuffer GpuView;
+            internal GraphicsBuffer CompactGroups;
+            internal GraphicsBuffer CompactArgs;
+            internal bool Compacted;
+            internal bool HasVisibilityEstimate, VisibilityReadbackPending;
+            internal uint RejectedSplats;
+            internal int NextVisibilityProbeFrame, VisibilityGeneration;
+            internal int PolicyFrame = -1, PolicyThreshold;
+            internal bool PolicyCompaction;
+            internal int SortDispatchCount; // Regression-test diagnostic; no GPU readback.
+
+
+            internal void EnsureCompactionBuffers()
+            {
+                if (CompactArgs != null) return;
+                CompactGroups = new GraphicsBuffer(GraphicsBuffer.Target.Structured, (GpuSortKeys.count + 255) / 256, 4)
+                    { name = "GaussianVisibilityGroupOffsets" };
+                CompactArgs = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.IndirectArguments, 10, 4)
+                    { name = "GaussianVisibilityIndirectArgs" };
+                CompactArgs.SetData(new uint[10]);
+            }
             internal GpuSorting.Args SorterArgs;
             internal readonly MaterialPropertyBlock DirectMaterialProperties = new();
             internal CameraSortState SortState;
@@ -590,6 +650,16 @@ namespace Gaussians.ThreeD
 
             void DisposeBuffers()
             {
+                ++VisibilityGeneration;
+                PolicyFrame = -1;
+                HasVisibilityEstimate = VisibilityReadbackPending = false;
+                NextVisibilityProbeFrame = 0;
+                RejectedSplats = 0;
+                CompactGroups?.Dispose();
+                CompactArgs?.Dispose();
+                CompactGroups = null;
+                CompactArgs = null;
+                Compacted = false;
                 GpuView?.Dispose();
                 GpuSortDistances?.Dispose();
                 GpuSortKeys?.Dispose();
@@ -608,6 +678,66 @@ namespace Gaussians.ThreeD
             }
         }
 
+        // Explicitly scoped to the separate benchmark diagnostic replay. No counter buffer
+        // or instrumented shader is used by normal rendering / timing trials.
+        Camera m_BenchmarkCamera;
+        bool m_BenchmarkCaptureFrame;
+        GraphicsBuffer m_BenchmarkCounts;
+        int m_BenchmarkCountFrame = -1;
+        // Diagnostic CSVs reserve slot 12 so counter columns keep stable indices.
+        static readonly uint[] s_EmptyBenchmarkCounts = new uint[13];
+
+        public void BeginBenchmarkDiagnostics(Camera camera)
+        {
+            if (!camera || camera.stereoEnabled) throw new ArgumentException("Diagnostics require a mono camera.");
+            EndBenchmarkDiagnostics();
+            m_BenchmarkCamera = camera;
+            m_BenchmarkCounts = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 13, sizeof(uint));
+            m_BenchmarkCounts.SetData(s_EmptyBenchmarkCounts);
+        }
+
+        public void SetBenchmarkCaptureFrame(bool capture)
+        {
+            m_BenchmarkCaptureFrame = capture;
+            m_BenchmarkCountFrame = -1;
+        }
+
+        public void EndBenchmarkDiagnostics()
+        {
+            m_BenchmarkCamera = null;
+            m_BenchmarkCaptureFrame = false;
+            m_BenchmarkCounts?.Dispose();
+            m_BenchmarkCounts = null;
+            m_BenchmarkCountFrame = -1;
+        }
+
+        static ulong SumBenchmarkOutcomes(uint[] counts)
+        {
+            ulong sum = 0;
+            for (int i = 1; i < counts.Length; i++) sum += counts[i];
+            return sum;
+        }
+
+        public uint[] ReadBenchmarkDiagnostics(out uint sortPopulation, out uint submittedInstances)
+        {
+            if (m_BenchmarkCounts == null || m_BenchmarkCountFrame != Time.frameCount)
+                throw new InvalidOperationException("No current-frame diagnostic dispatch for this renderer/camera.");
+            var counts = new uint[13];
+            m_BenchmarkCounts.GetData(counts); // Deliberately blocking; diagnostic pass only.
+            if (counts[0] != m_SplatCount || SumBenchmarkOutcomes(counts) != counts[0])
+                throw new InvalidOperationException("Diagnostic input/rejection counts are inconsistent.");
+            sortPopulation = submittedInstances = (uint)m_SplatCount;
+            if (m_CameraRenderResources[m_BenchmarkCamera].Compacted)
+            {
+                var resources = m_CameraRenderResources[m_BenchmarkCamera];
+                var args = new uint[10];
+                resources.CompactArgs.GetData(args);
+                sortPopulation = args[0];
+                submittedInstances = args[6];
+            }
+            return counts;
+        }
+
         readonly Dictionary<Camera, CameraRenderResources> m_CameraRenderResources = new();
         readonly List<Camera> m_DestroyedCameraResources = new();
         GaussianSplat3DAsset m_PrevAsset;
@@ -622,6 +752,7 @@ namespace Gaussians.ThreeD
         {
             public static readonly int ConvertGammaToLinear = Shader.PropertyToID("_ConvertGammaToLinear");
             public static readonly int AlphaCutoff = Shader.PropertyToID("_AlphaCutoff");
+            public static readonly int OpacityAwareBounds = Shader.PropertyToID("_OpacityAwareBounds");
             public static readonly int SplatPos = Shader.PropertyToID("_SplatPos");
             public static readonly int SplatOther = Shader.PropertyToID("_SplatOther");
             public static readonly int SplatSH = Shader.PropertyToID("_SplatSH");
@@ -759,7 +890,7 @@ namespace Gaussians.ThreeD
             }
             else
             {
-                // just a dummy chunk buffer
+                // Bind a valid buffer even when the unchunked shader branch does not read it.
                 m_GpuChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1,
                     UnsafeUtility.SizeOf<GaussianSplat3DAsset.ChunkInfo>()) {name = "GaussianChunkData"};
                 m_GpuChunksValid = false;
@@ -947,8 +1078,9 @@ namespace Gaussians.ThreeD
         {
             BindSource(mat);
             mat.SetFloat(Props.AlphaCutoff, Mathf.Clamp01(m_AlphaCutoff));
+            mat.SetInt(Props.OpacityAwareBounds, m_OpacityAwareBounds ? 1 : 0);
             mat.SetInt(Props.ConvertGammaToLinear, effectiveDirectConversion ? 1 : 0);
-            mat.SetFloat(Props.MinimumSplatRadiusPixels, Mathf.Max(0, m_MinimumSplatRadiusPixels));
+            mat.SetFloat(Props.MinimumSplatRadiusPixels, (m_EarlyRejection ? Mathf.Max(0, m_MinimumSplatRadiusPixels) : 0));
             mat.SetInt(Props.SortDescending, usesDirectTransparentPath ? 1 : 0);
             mat.SetMatrix(Props.MatrixObjectToWorld, transform.localToWorldMatrix);
             mat.SetBuffer(Props.SplatPos, m_GpuPosData);
@@ -1036,7 +1168,12 @@ namespace Gaussians.ThreeD
                 layer = gameObject.layer,
                 camera = cam,
             };
-            Graphics.RenderMeshPrimitives(renderParams, m_DirectQuadMesh, 0, splatCount);
+            if (UseCompaction(cameraResources))
+                Graphics.DrawProceduralIndirect(cameraResources.DirectMaterial, worldBounds, MeshTopology.Triangles,
+                    m_GpuIndexBuffer, GetIndirectArgs(cameraResources), 20, cam,
+                    cameraResources.DirectMaterialProperties, ShadowCastingMode.Off, false, gameObject.layer);
+            else
+                Graphics.RenderMeshPrimitives(renderParams, m_DirectQuadMesh, 0, splatCount);
         }
 
         static void DisposeBuffer(ref GraphicsBuffer buf)
@@ -1082,6 +1219,7 @@ namespace Gaussians.ThreeD
 
         public void OnDisable()
         {
+            EndBenchmarkDiagnostics();
 #if UNITY_EDITOR
             UnityEditor.Undo.undoRedoPerformed -= OnUndoRedo;
 #endif
@@ -1166,6 +1304,7 @@ namespace Gaussians.ThreeD
                 RightView = state.RightView,
                 RightProjection = state.RightProjection,
                 ViewCount = state.ViewCount,
+                IndirectInstanceMultiplier = state.IndirectInstanceMultiplier,
                 RightScreenSize = state.RightScreenSize,
                 ConvertColor = effectiveDirectConversion,
                 Projection = state.Projection,
@@ -1176,11 +1315,16 @@ namespace Gaussians.ThreeD
                 OpacityScale = m_OpacityScale,
                 SHOrder = m_SHOrder,
                 SHOnly = m_SHOnly,
-                MinimumSplatRadiusPixels = Mathf.Max(0.0f, m_MinimumSplatRadiusPixels),
+                MinimumSplatRadiusPixels = (m_EarlyRejection ? Mathf.Max(0.0f, m_MinimumSplatRadiusPixels) : 0),
                 CutoutHash = CalculateCutoutHash(objectToWorld),
                 RenderDataVersion = m_RenderDataVersion,
                 AttributeRevision = m_SourceFrame.AttributeRevision,
                 NearClip = cam.nearClipPlane,
+                MinimumDistance = (m_EarlyRejection ? Mathf.Max(0, m_MinimumSplatDistance) : 0),
+                MinimumOpacity = MinimumOpacity,
+                DeferredSHLoading = UseDeferredSH(GetOrCreateCameraRenderResources(cam)),
+                EarlyFrustumCulling = m_EarlyFrustumCulling,
+                OpacityAwareBounds = m_OpacityAwareBounds, AlphaCutoff = Mathf.Clamp01(m_AlphaCutoff),
             };
         }
 
@@ -1202,6 +1346,7 @@ namespace Gaussians.ThreeD
                                    state.BackToFront != backToFront ||
                                    state.RenderDataVersion != m_RenderDataVersion ||
                                    state.PositionRevision != m_SourceFrame.PositionRevision ||
+                                   state.SortKeyBits != sortKeyBits ||
                                    state.SortNthFrame != m_SortNthFrame;
             bool matrixChanged = !state.HasSignature || !state.MatrixMV.Equals(matrixMV);
             bool renderedThisFrame = state.HasSignature && state.LastFrame == frame;
@@ -1226,6 +1371,7 @@ namespace Gaussians.ThreeD
             state.RenderDataVersion = m_RenderDataVersion;
             state.PositionRevision = m_SourceFrame.PositionRevision;
             state.SortNthFrame = m_SortNthFrame;
+            state.SortKeyBits = sortKeyBits;
             resources.SortState = state;
             return shouldSort;
         }
@@ -1237,7 +1383,7 @@ namespace Gaussians.ThreeD
                 return false;
 
             ViewSignature signature = CreateViewSignature(cam);
-            if (resources.HasViewSignature && resources.ViewSignature.Equals(signature))
+            if (!(cam == m_BenchmarkCamera && m_BenchmarkCaptureFrame) && resources.HasViewSignature && resources.ViewSignature.Equals(signature))
                 return false;
 
             resources.ViewSignature = signature;
@@ -1248,18 +1394,35 @@ namespace Gaussians.ThreeD
         internal void CalcViewData(CommandBuffer cmb, Camera cam, CameraRenderResources resources)
         {
             if (cam.cameraType == CameraType.Preview) return;
-            SetAssetDataOnCS(cmb, KernelIndices.CalcViewData, resources);
+            bool diagnostics = cam == m_BenchmarkCamera && m_BenchmarkCaptureFrame && m_BenchmarkCounts != null;
+            int kernel = diagnostics ? m_CSSplatUtilities.FindKernel("CSCalcViewDataDiagnostics") : (int)KernelIndices.CalcViewData;
+            SetAssetDataOnCS(cmb, (KernelIndices)kernel, resources);
+            if (diagnostics)
+            {
+                if (resources.ViewCount != 1) throw new InvalidOperationException("Diagnostics require mono rendering.");
+                cmb.SetBufferData(m_BenchmarkCounts, s_EmptyBenchmarkCounts);
+                cmb.SetComputeBufferParam(m_CSSplatUtilities, kernel, "_BenchmarkCounts", m_BenchmarkCounts);
+                m_BenchmarkCountFrame = Time.frameCount;
+            }
             var objectToWorld = transform.localToWorldMatrix;
             cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixObjectToWorld, objectToWorld);
             cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixWorldToObject, transform.worldToLocalMatrix);
             var state = GaussianSplatCameraState.ForCamera(cam);
+            cmb.SetComputeIntParam(m_CSSplatUtilities, "_DeferredSHLoading", UseDeferredSH(resources) ? 1 : 0);
+            cmb.SetComputeIntParam(m_CSSplatUtilities, "_EarlyFrustumCulling", m_EarlyFrustumCulling ? 1 : 0);
+            cmb.SetComputeIntParam(m_CSSplatUtilities, Props.OpacityAwareBounds, m_OpacityAwareBounds ? 1 : 0);
+            cmb.SetComputeFloatParam(m_CSSplatUtilities, Props.AlphaCutoff, Mathf.Clamp01(m_AlphaCutoff));
             cmb.SetComputeFloatParam(m_CSSplatUtilities, "_SplatNearClip", cam.nearClipPlane);
+            float minimumDistance = m_EarlyRejection ? Mathf.Max(0, m_MinimumSplatDistance) : 0;
+            // One center-depth check on the GPU, before covariance and frustum work.
+            cmb.SetComputeFloatParam(m_CSSplatUtilities, "_SplatCullDistance", Mathf.Max(1.0e-6f, Mathf.Max(cam.nearClipPlane, minimumDistance)));
+            cmb.SetComputeFloatParam(m_CSSplatUtilities, "_MinimumSplatOpacity", MinimumOpacity);
             cmb.SetComputeFloatParam(m_CSSplatUtilities, Props.SplatScale, m_SplatScale);
             cmb.SetComputeFloatParam(m_CSSplatUtilities, Props.SplatOpacityScale, m_OpacityScale);
             cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SHOrder, m_SHOrder);
             cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SHOnly, m_SHOnly ? 1 : 0);
-            cmb.SetComputeFloatParam(m_CSSplatUtilities, Props.MinimumSplatRadiusPixels, Mathf.Max(0, m_MinimumSplatRadiusPixels));
-            m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.CalcViewData, out uint groupSize, out _, out _);
+            cmb.SetComputeFloatParam(m_CSSplatUtilities, Props.MinimumSplatRadiusPixels, (m_EarlyRejection ? Mathf.Max(0, m_MinimumSplatRadiusPixels) : 0));
+            m_CSSplatUtilities.GetKernelThreadGroupSizes(kernel, out uint groupSize, out _, out _);
             for (int eye = 0; eye < resources.ViewCount; ++eye)
             {
                 var view = eye == 0 ? state.View : state.RightView;
@@ -1272,7 +1435,7 @@ namespace Gaussians.ThreeD
                 cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.ProjectionMatrix, projection);
                 cmb.SetComputeVectorParam(m_CSSplatUtilities, Props.VecWorldSpaceCameraPos, view.inverse.GetColumn(3));
                 cmb.SetComputeIntParam(m_CSSplatUtilities, Props.ViewDataOffset, eye * m_SplatCount);
-                cmb.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.CalcViewData, (m_SplatCount + (int)groupSize - 1) / (int)groupSize, 1, 1);
+                cmb.DispatchCompute(m_CSSplatUtilities, kernel, (m_SplatCount + (int)groupSize - 1) / (int)groupSize, 1, 1);
             }
         }
 
@@ -1282,9 +1445,129 @@ namespace Gaussians.ThreeD
             properties.SetInt(Props.SplatEyeIndex, GaussianSplatCameraState.ForCamera(camera).EyeIndex);
         }
 
+        internal GraphicsBuffer GetIndirectArgs(CameraRenderResources resources)
+        {
+            if (!UseCompaction(resources)) return null;
+            resources.EnsureCompactionBuffers();
+            return resources.CompactArgs;
+        }
+
+        internal void PrepareCamera(CommandBuffer cmd, Camera camera, bool backToFront, CameraRenderResources resources)
+        {
+            bool prepare = ShouldPrepareViewForCamera(camera);
+            bool sort = ShouldSortForCamera(camera, backToFront);
+            if (UseCompaction(resources))
+            {
+                if (prepare)
+                {
+                    cmd.BeginSample(GaussianSplat3DRenderSystem.s_ProfCalcView);
+                    CalcViewData(cmd, camera, resources);
+                    cmd.EndSample(GaussianSplat3DRenderSystem.s_ProfCalcView);
+                }
+                // Rebuilding IDs invalidates the previous order, including on skipped cadence frames.
+                if (prepare || sort || !resources.Compacted)
+                    CompactAndSort(cmd, camera, backToFront, resources);
+                resources.Compacted = true;
+            }
+            else
+            {
+                if (resources.Compacted)
+                {
+                    resources.SortKeysInitialized = false;
+                    resources.Compacted = false;
+                    sort = true;
+                }
+                if (sort) SortPoints(cmd, camera, transform.localToWorldMatrix, backToFront, resources);
+                if (prepare)
+                {
+                    cmd.BeginSample(GaussianSplat3DRenderSystem.s_ProfCalcView);
+                    CalcViewData(cmd, camera, resources);
+                    cmd.EndSample(GaussianSplat3DRenderSystem.s_ProfCalcView);
+                }
+            }
+            ProbeVisibility(cmd, camera, resources);
+        }
+
+        void CountVisible(CommandBuffer cmd, Camera camera, CameraRenderResources resources)
+        {
+            resources.EnsureCompactionBuffers();
+            int countKernel = m_CSSplatUtilities.FindKernel("CSCountVisibleGroups");
+            int scanKernel = m_CSSplatUtilities.FindKernel("CSScanVisibleGroups");
+            int groups = resources.CompactGroups.count;
+            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatCount, m_SplatCount);
+            cmd.SetComputeIntParam(m_CSSplatUtilities, "_CompactViewCount", resources.ViewCount);
+            cmd.SetComputeIntParam(m_CSSplatUtilities, "_CompactGroupCount", groups);
+            // Unity doubles ordinary procedural instance counts for SPI; indirect counts are GPU-owned.
+            int instances = GaussianSplatCameraState.ForCamera(camera).IndirectInstanceMultiplier;
+            cmd.SetComputeIntParam(m_CSSplatUtilities, "_CompactInstanceMultiplier", instances);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, countKernel, Props.SplatViewData, resources.GpuView);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, countKernel, "_CompactGroups", resources.CompactGroups);
+            cmd.DispatchCompute(m_CSSplatUtilities, countKernel, groups, 1, 1);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, scanKernel, "_CompactGroups", resources.CompactGroups);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, scanKernel, "_CompactArgs", resources.CompactArgs);
+            cmd.DispatchCompute(m_CSSplatUtilities, scanKernel, 1, 1, 1);
+
+        }
+
+        void ProbeVisibility(CommandBuffer cmd, Camera camera, CameraRenderResources resources)
+        {
+            if (m_OptimizationOverrides || m_CompactionThreshold <= 0 || m_CompactionThreshold > m_SplatCount ||
+                !SystemInfo.supportsAsyncGPUReadback || resources.VisibilityReadbackPending ||
+                Time.frameCount < resources.NextVisibilityProbeFrame || camera.cameraType == CameraType.Preview) return;
+            // Compacted frames already have a current union count; otherwise sample at low cadence.
+            if (!resources.Compacted) CountVisible(cmd, camera, resources);
+            resources.VisibilityReadbackPending = true;
+            resources.NextVisibilityProbeFrame = Time.frameCount + 16;
+            int generation = resources.VisibilityGeneration;
+            uint population = (uint)m_SplatCount;
+            cmd.RequestAsyncReadback(resources.CompactArgs, sizeof(uint), 0, request =>
+            {
+                // The camera/asset may have been destroyed or resized while this request was in flight.
+                if (resources.VisibilityGeneration != generation) return;
+                resources.VisibilityReadbackPending = false;
+                if (request.hasError) return;
+                uint visible = request.GetData<uint>()[0];
+                resources.RejectedSplats = population - Math.Min(population, visible);
+                resources.HasVisibilityEstimate = true;
+            });
+        }
+
+        internal void CompactAndSort(CommandBuffer cmd, Camera camera, bool backToFront, CameraRenderResources resources)
+        {
+            resources.EnsureCompactionBuffers();
+            cmd.BeginSample("GaussianSplat.CompactVisible");
+            CountVisible(cmd, camera, resources);
+            int scatterKernel = m_CSSplatUtilities.FindKernel("CSCompactVisible");
+            int groups = resources.CompactGroups.count;
+
+            GetSharedStereoMatrices(camera, out Matrix4x4 view, out _);
+            view.m20 *= -1; view.m21 *= -1; view.m22 *= -1;
+            BindSource(cmd, m_CSSplatUtilities, scatterKernel);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, scatterKernel, Props.SplatViewData, resources.GpuView);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, scatterKernel, "_CompactGroups", resources.CompactGroups);
+            bool alternate = sortKeyBits == 24;
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, scatterKernel, Props.SplatSortDistances,
+                alternate ? resources.SorterArgs.resources.altBuffer : resources.GpuSortDistances);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, scatterKernel, Props.SplatSortKeys,
+                alternate ? resources.SorterArgs.resources.altPayloadBuffer : resources.GpuSortKeys);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, scatterKernel, Props.SplatChunks, m_GpuChunks);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, scatterKernel, Props.SplatPos, m_GpuPosData);
+            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatFormat, (int)m_Asset.posFormat);
+            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
+            cmd.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixMV, view * transform.localToWorldMatrix);
+            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SortDescending, backToFront ? 1 : 0);
+            cmd.DispatchCompute(m_CSSplatUtilities, scatterKernel, groups, 1, 1);
+            cmd.EndSample("GaussianSplat.CompactVisible");
+            cmd.BeginSample(s_ProfSort);
+            ++resources.SortDispatchCount;
+            m_Sorter.Dispatch(cmd, resources.SorterArgs, sortKeyBits, resources.CompactArgs);
+            cmd.EndSample(s_ProfSort);
+        }
+
         internal void SortPoints(CommandBuffer cmd, Camera cam, Matrix4x4 matrix, bool backToFront,
             CameraRenderResources cameraResources)
         {
+            ++cameraResources.SortDispatchCount;
             if (cam.cameraType == CameraType.Preview)
                 return;
 
@@ -1293,7 +1576,6 @@ namespace Gaussians.ThreeD
             worldToCamMatrix.m21 *= -1;
             worldToCamMatrix.m22 *= -1;
 
-            // calculate distance to the camera for each splat
             cmd.BeginSample(s_ProfSort);
             if (!cameraResources.SortKeysInitialized)
             {
@@ -1307,10 +1589,14 @@ namespace Gaussians.ThreeD
             }
 
             BindSource(cmd, m_CSSplatUtilities, (int)KernelIndices.CalcDistances);
+            bool alternateInput = sortKeyBits == 24;
+            cmd.SetComputeIntParam(m_CSSplatUtilities, "_SortKeyBits", sortKeyBits);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_SplatSortInput",
+                alternateInput ? cameraResources.GpuSortKeys : cameraResources.SorterArgs.resources.altPayloadBuffer);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatSortDistances,
-                cameraResources.GpuSortDistances);
+                alternateInput ? cameraResources.SorterArgs.resources.altBuffer : cameraResources.GpuSortDistances);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatSortKeys,
-                cameraResources.GpuSortKeys);
+                alternateInput ? cameraResources.SorterArgs.resources.altPayloadBuffer : cameraResources.GpuSortKeys);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatChunks, m_GpuChunks);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatPos, m_GpuPosData);
             cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatFormat, (int)m_Asset.posFormat);
@@ -1322,9 +1608,8 @@ namespace Gaussians.ThreeD
             cmd.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.CalcDistances,
                 (cameraResources.GpuSortDistances.count + (int)gsX - 1)/(int)gsX, 1, 1);
 
-            // sort the splats
             EnsureSorterAndRegister();
-            m_Sorter.Dispatch(cmd, cameraResources.SorterArgs);
+            m_Sorter.Dispatch(cmd, cameraResources.SorterArgs, sortKeyBits);
             cmd.EndSample(s_ProfSort);
         }
 
@@ -1689,7 +1974,6 @@ namespace Gaussians.ThreeD
             int otherStride = (int)(asset.otherData.dataSize / asset.splatCount);
             int shStride = (int) (asset.shData.dataSize / asset.splatCount);
 
-            // create new GPU buffers
             var newPosData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, newSplatCount * posStride / 4, 4) { name = "GaussianPosData" };
             var newOtherData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, newSplatCount * otherStride / 4, 4) { name = "GaussianOtherData" };
             var newSHData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, newSplatCount * shStride / 4, 4) { name = "GaussianSHData" };
@@ -1700,7 +1984,6 @@ namespace Gaussians.ThreeD
             var newColorData = new RenderTexture(texWidth, texHeight, texFormat, GraphicsFormat.None) { name = "GaussianColorData", enableRandomWrite = true };
             newColorData.Create();
 
-            // selected/deleted buffers
             var selTarget = GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource | GraphicsBuffer.Target.CopyDestination;
             var selSize = (newSplatCount + 31) / 32;
             var newEditSelected = new GraphicsBuffer(selTarget, selSize, 4) {name = "GaussianSplatSelected"};
@@ -1710,10 +1993,8 @@ namespace Gaussians.ThreeD
             ClearGraphicsBuffer(newEditSelectedMouseDown);
             ClearGraphicsBuffer(newEditDeleted);
 
-            // copy existing data over into new buffers
             EditCopySplats(transform, newPosData, newOtherData, newSHData, newColorData, newEditDeleted, newSplatCount, 0, 0, m_SplatCount);
 
-            // use the new buffers and the new splat count
             m_GpuPosData.Dispose();
             m_GpuOtherData.Dispose();
             m_GpuSHData.Dispose();

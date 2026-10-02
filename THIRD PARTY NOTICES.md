@@ -4,12 +4,7 @@ This package contains software derived from third-party open-source projects.
 
 ## UnityGaussianSplatting
 
-Portions of this package are derived from:
-
-UnityGaussianSplatting
-https://github.com/aras-p/UnityGaussianSplatting
-
-Copyright (c) 2023 Aras Pranckevičius
+Portions of this package are derived from [UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting).
 
 MIT License
 
@@ -33,9 +28,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## Others
+## Additional included software
 
-Also uses further third party libraries:
+The corresponding license notices are also embedded in the source files:
 
-- [zanders3/json](https://github.com/zanders3/json), MIT license, (c) 2018 Alex Parker.
-- "DeviceRadixSort" GPU sorting code contributed by Thomas Smith to the original 3DGS Unity Project([#82](https://github.com/aras-p/UnityGaussianSplatting/pull/82)), see also [b0nes164/GPUSorting]
+- [zanders3/json](https://github.com/zanders3/json), MIT license, copyright (c) 2018 Alex Parker. See [TinyJsonParser.cs](Editor/Core/Utils/TinyJsonParser.cs).
+- DeviceRadixSort from [b0nes164/GPUSorting](https://github.com/b0nes164/GPUSorting), MIT license, copyright Thomas Smith 2024. Contributed to UnityGaussianSplatting in [pull request #82](https://github.com/aras-p/UnityGaussianSplatting/pull/82). See [DeviceRadixSort.hlsl](Shaders/Core/Sorting/DeviceRadixSort.hlsl).

@@ -40,21 +40,23 @@ namespace Gaussians.Benchmark
     [Serializable] public sealed class GaussianBenchmarkTrial
     {
         public string experiment, variant, view, status = "running", error, config, camera, extensions;
-        public int repetition, width, height, renderWidth, renderHeight;
+        public int repetition, width, height, renderWidth, renderHeight, executionOrder;
+        public string phase = "timing";
         public GaussianBenchmarkRenderers.RendererInfo[] renderers;
         public int inputSamples, cpuSamples, gpuSamples;
         public GaussianBenchmarkXrInfo xr;
         public int xrAppGpuSamples, xrCompositorGpuSamples;
+        public int xrAppGpuOverBudgetSamples = -1;
         [NonSerialized] public readonly List<Input> inputs = new();
         [NonSerialized] public readonly List<FrameTiming> timings = new();
         [NonSerialized] public readonly List<XrTiming> xrTimings = new();
         public struct Input { public int sample; public double elapsed; public Vector3 position; public Quaternion rotation; }
-        public struct XrTiming { public int observation; public double appGpu, compositorGpu; }
+        public struct XrTiming { public int observation, droppedFrames, presentedFrames; public double appGpu, compositorGpu; }
     }
 
     [Serializable] public sealed class GaussianBenchmarkRunInfo
     {
-        public int schemaVersion = 2;
+        public int schemaVersion = 6;
         public string utc, unity, device, cpu, gpu, graphicsApi, pipeline, scene, buildGuid, buildMetadata, mode;
         public bool editor, development;
         public string timingStatus = "Unavailable values have no valid device sample. Timings are whole-frame; source timestamps are not mapped to input sample indices.";
@@ -93,6 +95,12 @@ namespace Gaussians.Benchmark
 
         public void WriteTrial(GaussianBenchmarkTrial trial)
         {
+            if (trial.phase == "diagnostics")
+            {
+                Info.trials.Add(trial);
+                Save();
+                return;
+            }
             var prefix = string.Join(",", Quote(trial.experiment), Quote(trial.variant), Quote(trial.view), trial.repetition.ToString(Culture));
             var csv = new StringBuilder();
             foreach (var s in trial.inputs)
@@ -108,11 +116,13 @@ namespace Gaussians.Benchmark
             if (trial.xr != null)
             {
                 string path = Path.Combine(DirectoryPath, "xr-timings.csv");
-                if (!File.Exists(path)) File.WriteAllText(path, "experiment,variant,view,repetition,observation_sample,xr_app_gpu_ms,xr_compositor_gpu_ms\n");
+                if (!File.Exists(path)) File.WriteAllText(path, "experiment,variant,view,repetition,observation_sample,xr_app_gpu_ms,xr_compositor_gpu_ms,xr_dropped_frames_reported,xr_presented_frames_reported\n");
                 var xrCsv = new StringBuilder();
                 foreach (var timing in trial.xrTimings)
-                    xrCsv.AppendLine(string.Join(",", prefix, timing.observation.ToString(Culture), Number(timing.appGpu), Number(timing.compositorGpu)));
+                    xrCsv.AppendLine(string.Join(",", prefix, timing.observation.ToString(Culture), Number(timing.appGpu), Number(timing.compositorGpu), timing.droppedFrames < 0 ? "unavailable" : timing.droppedFrames.ToString(Culture), timing.presentedFrames < 0 ? "unavailable" : timing.presentedFrames.ToString(Culture)));
                 File.AppendAllText(path, xrCsv.ToString());
+                if (double.TryParse(trial.xr.frameBudgetMs, NumberStyles.Float, Culture, out double budget) && budget > 0)
+                    trial.xrAppGpuOverBudgetSamples = trial.xrTimings.Count(t => double.IsFinite(t.appGpu) && t.appGpu > budget);
                 trial.xrAppGpuSamples = AddSummary(summary, prefix, trial.status, "xr_app_gpu", trial.xrTimings.Select(s => s.appGpu));
                 trial.xrCompositorGpuSamples = AddSummary(summary, prefix, trial.status, "xr_compositor_gpu", trial.xrTimings.Select(s => s.compositorGpu));
             }

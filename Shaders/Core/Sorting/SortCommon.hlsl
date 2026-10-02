@@ -44,6 +44,12 @@ cbuffer cbGpuSorting : register(b0)
     uint padding;
 };
 
+#if defined(GAUSSIANS_GPU_SORT_COUNT)
+ByteAddressBuffer b_sortCounts;
+#define e_numKeys b_sortCounts.Load(0)
+#define e_threadBlocks b_sortCounts.Load(4)
+#endif
+
 #if defined(KEY_UINT)
 RWStructuredBuffer<uint> b_sort;
 RWStructuredBuffer<uint> b_alt;

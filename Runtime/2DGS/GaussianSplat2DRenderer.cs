@@ -111,7 +111,6 @@ namespace Gaussians.TwoD
             m_ActiveSplats.Clear();
             if (cam.cameraType == CameraType.Preview)
                 return false;
-            // gather all active & valid splat objects
             m_ActiveSplats.Clear();
             foreach (var kvp in m_Splats)
             {
@@ -128,7 +127,6 @@ namespace Gaussians.TwoD
             if (m_ActiveSplats.Count == 0)
                 return false;
 
-            // sort them by order and depth from camera
             var camTr = cam.transform;
             m_ActiveSplats.Sort((a, b) =>
             {
@@ -230,7 +228,6 @@ namespace Gaussians.TwoD
                 mpb.SetInteger(GaussianSplat2DRenderer.Props.DisplayIndex, gs.m_RenderMode == GaussianSplat2DRenderer.RenderMode.DebugPointIndices ? 1 : 0);
                 mpb.SetInteger(GaussianSplat2DRenderer.Props.DisplayChunks, gs.m_RenderMode == GaussianSplat2DRenderer.RenderMode.DebugChunkBounds ? 1 : 0);
 
-                // draw
                 int indexCount = 6;
                 int instanceCount = gs.splatCount;
                 if (gs.m_RenderMode is GaussianSplat2DRenderer.RenderMode.DebugBoxes or GaussianSplat2DRenderer.RenderMode.DebugChunkBounds)
@@ -362,7 +359,6 @@ namespace Gaussians.TwoD
             // add sorting, view calc and drawing commands for each splat object
             Material matComposite = SortAndRenderCompositeSplats(cam, m_CommandBuffer);
 
-            // compose
             m_CommandBuffer.BeginSample(s_ProfCompose);
             m_CommandBuffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
             m_CommandBuffer.DrawProcedural(Matrix4x4.identity, matComposite, 0, MeshTopology.Triangles, 3, GaussianRenderTargets.FullscreenInstances(cam));
@@ -719,7 +715,7 @@ namespace Gaussians.TwoD
             }
             else
             {
-                // just a dummy chunk buffer
+                // Bind a valid buffer even when the unchunked shader branch does not read it.
                 m_GpuChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1,
                     UnsafeUtility.SizeOf<GaussianSplat2DAsset.ChunkInfo>()) {name = "GaussianChunkData"};
                 m_GpuChunksValid = false;
@@ -1212,7 +1208,6 @@ namespace Gaussians.TwoD
             worldToCamMatrix.m21 *= -1;
             worldToCamMatrix.m22 *= -1;
 
-            // calculate distance to the camera for each splat
             cmd.BeginSample(s_ProfSort);
             if (!cameraResources.SortKeysInitialized)
             {
@@ -1240,7 +1235,6 @@ namespace Gaussians.TwoD
             cmd.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.CalcDistances,
                 (cameraResources.GpuSortDistances.count + (int)gsX - 1)/(int)gsX, 1, 1);
 
-            // sort the splats
             EnsureSorterAndRegister();
             m_Sorter.Dispatch(cmd, cameraResources.SorterArgs);
             cmd.EndSample(s_ProfSort);
@@ -1601,7 +1595,6 @@ namespace Gaussians.TwoD
             int otherStride = (int)(asset.otherData.dataSize / asset.splatCount);
             int shStride = (int) (asset.shData.dataSize / asset.splatCount);
 
-            // create new GPU buffers
             var newPosData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, newSplatCount * posStride / 4, 4) { name = "GaussianPosData" };
             var newOtherData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, newSplatCount * otherStride / 4, 4) { name = "GaussianOtherData" };
             var newSHData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, newSplatCount * shStride / 4, 4) { name = "GaussianSHData" };
@@ -1612,7 +1605,6 @@ namespace Gaussians.TwoD
             var newColorData = new RenderTexture(texWidth, texHeight, texFormat, GraphicsFormat.None) { name = "GaussianColorData", enableRandomWrite = true };
             newColorData.Create();
 
-            // selected/deleted buffers
             var selTarget = GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource | GraphicsBuffer.Target.CopyDestination;
             var selSize = (newSplatCount + 31) / 32;
             var newEditSelected = new GraphicsBuffer(selTarget, selSize, 4) {name = "GaussianSplatSelected"};
@@ -1622,10 +1614,8 @@ namespace Gaussians.TwoD
             ClearGraphicsBuffer(newEditSelectedMouseDown);
             ClearGraphicsBuffer(newEditDeleted);
 
-            // copy existing data over into new buffers
             EditCopySplats(transform, newPosData, newOtherData, newSHData, newColorData, newEditDeleted, newSplatCount, 0, 0, m_SplatCount);
 
-            // use the new buffers and the new splat count
             m_GpuPosData.Dispose();
             m_GpuOtherData.Dispose();
             m_GpuSHData.Dispose();

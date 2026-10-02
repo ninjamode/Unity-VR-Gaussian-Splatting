@@ -44,6 +44,7 @@ namespace Gaussians.Benchmark.Editor
                 foreach (var extension in extensions) extension.Configure(selected.subject, selected.id);
                 selected.subject.SetActive(true);
                 experiment.ApplyPose(sample, view);
+                experiment.benchmarkCamera.gameObject.SetActive(true);
                 experiment.benchmarkCamera.enabled = true;
                 experiment.benchmarkCamera.ResetAspect();
                 foreach (var extension in extensions) extension.Begin();

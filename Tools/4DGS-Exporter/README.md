@@ -4,10 +4,9 @@ Converts fine-stage `hustvl/4DGaussians` checkpoints into canonical Gaussian ten
 
 ## Install
 
-Copy this whole directory to the training machine. Activate the scene's training environment and install the extra dependency:
+Copy this whole directory to the training machine. Activate the scene's training environment, then run from the copied directory:
 ```bash
-# conda activate env or whatever
-python -m pip install -r 4DGS-Exporter/requirements-export.txt
+python -m pip install -r requirements-export.txt
 ```
 This uses the environment's PyTorch, NumPy and `plyfile`. Export runs on CPU and does not need ONNX Runtime.
 

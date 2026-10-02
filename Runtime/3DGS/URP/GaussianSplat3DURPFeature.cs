@@ -56,7 +56,8 @@ namespace Gaussians.ThreeD
             return new GaussianSplatCameraState(view, projection,
                 viewCount > 1 ? camera.GetViewMatrix(1) : view,
                 viewCount > 1 ? camera.GetProjectionMatrix(1) : projection,
-                Vector2Int.RoundToInt(size), Vector2Int.RoundToInt(rightSize), viewCount);
+                Vector2Int.RoundToInt(size), Vector2Int.RoundToInt(rightSize), viewCount,
+                indirectInstanceMultiplier: viewCount > 1 && !SystemInfo.supportsMultiview ? viewCount : 1);
         }
 
         static GaussianSplatCameraState CaptureCamera(UniversalCameraData camera)
@@ -71,14 +72,21 @@ namespace Gaussians.ThreeD
             return new GaussianSplatCameraState(view, projection,
                 viewCount > 1 ? camera.GetViewMatrix(1) : view,
                 viewCount > 1 ? camera.GetProjectionMatrix(1) : projection,
-                Vector2Int.RoundToInt(size), Vector2Int.RoundToInt(rightSize), viewCount);
+                Vector2Int.RoundToInt(size), Vector2Int.RoundToInt(rightSize), viewCount,
+                indirectInstanceMultiplier: viewCount > 1 && !SystemInfo.supportsMultiview ? viewCount : 1);
         }
 
         static void DrawSplats(RasterCommandBuffer cmd, List<GaussianSplat3DRenderSystem.SplatDraw> draws, int pass)
         {
             foreach (var draw in draws)
-                cmd.DrawProcedural(draw.Indices, draw.Matrix, draw.Material, pass,
-                    MeshTopology.Triangles, draw.IndexCount, draw.Count, draw.Properties);
+            {
+                if (draw.IndirectArgs != null)
+                    cmd.DrawProceduralIndirect(draw.Indices, draw.Matrix, draw.Material, pass,
+                        MeshTopology.Triangles, draw.IndirectArgs, 20, draw.Properties);
+                else
+                    cmd.DrawProcedural(draw.Indices, draw.Matrix, draw.Material, pass,
+                        MeshTopology.Triangles, draw.IndexCount, draw.Count, draw.Properties);
+            }
         }
 
         class GaussianSplat3DRenderPass : ScriptableRenderPass

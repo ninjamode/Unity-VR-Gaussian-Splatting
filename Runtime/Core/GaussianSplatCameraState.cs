@@ -11,10 +11,11 @@ namespace Gaussians.Core
         public readonly Matrix4x4 View, Projection, RightView, RightProjection;
         public readonly Vector2Int ScreenSize, RightScreenSize;
         public readonly int ViewCount, EyeIndex;
+        public readonly int IndirectInstanceMultiplier;
 
         public GaussianSplatCameraState(Matrix4x4 view, Matrix4x4 projection,
             Matrix4x4 rightView, Matrix4x4 rightProjection, Vector2Int screenSize,
-            Vector2Int rightScreenSize, int viewCount, int eyeIndex = 0)
+            Vector2Int rightScreenSize, int viewCount, int eyeIndex = 0, int indirectInstanceMultiplier = 1)
         {
             if (viewCount < 1 || viewCount > 2)
                 throw new ArgumentOutOfRangeException(nameof(viewCount), "Gaussian splats support one or two views per pass.");
@@ -26,6 +27,7 @@ namespace Gaussians.Core
             RightScreenSize = rightScreenSize;
             ViewCount = viewCount;
             EyeIndex = eyeIndex;
+            IndirectInstanceMultiplier = viewCount > 1 ? Mathf.Clamp(indirectInstanceMultiplier, 1, viewCount) : 1;
         }
 
         // Overrides exist only during a render callback. RenderGraph owns its own
@@ -69,7 +71,9 @@ namespace Gaussians.Core
                 stereo && XRSettings.eyeTextureWidth > 0 ? XRSettings.eyeTextureWidth : camera.pixelWidth,
                 stereo && XRSettings.eyeTextureHeight > 0 ? XRSettings.eyeTextureHeight : camera.pixelHeight);
             return new GaussianSplatCameraState(view, projection, rightView, rightProjection, size, size,
-                stereo ? 2 : 1, camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right ? 1 : 0);
+                stereo ? 2 : 1, camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right ? 1 : 0,
+                stereo && XRSettings.stereoRenderingMode == XRSettings.StereoRenderingMode.SinglePassInstanced &&
+                !SystemInfo.supportsMultiview ? 2 : 1);
         }
     }
 }

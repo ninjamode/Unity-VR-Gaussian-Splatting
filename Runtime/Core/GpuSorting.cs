@@ -28,6 +28,7 @@ namespace Gaussians.Core
         private LocalKeyword m_ascendKeyword;
         private LocalKeyword m_sortPairKeyword;
         private LocalKeyword m_vulkanKeyword;
+        private LocalKeyword m_gpuCountKeyword;
 
         public struct Args
         {
@@ -114,6 +115,9 @@ namespace Gaussians.Core
             m_ascendKeyword = new LocalKeyword(cs, "SHOULD_ASCEND");
             m_sortPairKeyword = new LocalKeyword(cs, "SORT_PAIRS");
             m_vulkanKeyword = new LocalKeyword(cs, "VULKAN");
+            // Optional: the 2D shader uses only CPU-sized dispatches. The constructor
+            // logs an error for absent keywords; FindKeyword safely returns an invalid one.
+            m_gpuCountKeyword = cs.keywordSpace.FindKeyword("GAUSSIANS_GPU_SORT_COUNT");
 
             cs.EnableKeyword(m_keyUintKeyword);
             cs.EnableKeyword(m_payloadUintKeyword);
@@ -142,7 +146,7 @@ namespace Gaussians.Core
 
         static uint DivRoundUp(uint x, uint y) => (x + y - 1) / y;
 
-        //Can we remove the last 4 padding without breaking?
+        // Match the shader constant buffer's 16-byte layout, including its unused fourth word.
         struct SortConstants
         {
             public uint numKeys;                        // The number of keys to sort
@@ -151,14 +155,33 @@ namespace Gaussians.Core
             public uint padding0;                       // Padding - unused
         }
 
-        public void Dispatch(CommandBuffer cmd, Args args)
+        public void Dispatch(CommandBuffer cmd, Args args) => Dispatch(cmd, args, 32);
+
+        // Sort the most significant key bits. For an odd pass count the caller
+        // generates input in the alternate buffers, so output always lands in
+        // inputKeys/inputValues without a full-buffer copy or rebinding draws.
+        public void Dispatch(CommandBuffer cmd, Args args, int keyBits, GraphicsBuffer gpuCounts = null)
         {
             Assert.IsTrue(Valid);
+            if (keyBits != 16 && keyBits != 24 && keyBits != 32)
+                throw new System.ArgumentOutOfRangeException(nameof(keyBits));
+            if (args.count == 0) return;
+            if (gpuCounts != null && !m_gpuCountKeyword.isValid)
+                throw new System.InvalidOperationException("This sorter does not support GPU counts.");
+            if (m_gpuCountKeyword.isValid)
+                cmd.SetKeyword(m_CS, m_gpuCountKeyword, gpuCounts != null);
+            if (gpuCounts != null)
+            {
+                cmd.SetComputeBufferParam(m_CS, m_kernelUpsweep, "b_sortCounts", gpuCounts);
+                cmd.SetComputeBufferParam(m_CS, m_kernelScan, "b_sortCounts", gpuCounts);
+                cmd.SetComputeBufferParam(m_CS, m_kernelDownsweep, "b_sortCounts", gpuCounts);
+            }
+            bool alternateInput = keyBits == 24;
 
-            GraphicsBuffer srcKeyBuffer = args.inputKeys;
-            GraphicsBuffer srcPayloadBuffer = args.inputValues;
-            GraphicsBuffer dstKeyBuffer = args.resources.altBuffer;
-            GraphicsBuffer dstPayloadBuffer = args.resources.altPayloadBuffer;
+            GraphicsBuffer srcKeyBuffer = alternateInput ? args.resources.altBuffer : args.inputKeys;
+            GraphicsBuffer srcPayloadBuffer = alternateInput ? args.resources.altPayloadBuffer : args.inputValues;
+            GraphicsBuffer dstKeyBuffer = alternateInput ? args.inputKeys : args.resources.altBuffer;
+            GraphicsBuffer dstPayloadBuffer = alternateInput ? args.inputValues : args.resources.altPayloadBuffer;
 
             SortConstants constants = default;
             constants.numKeys = args.count;
@@ -186,13 +209,14 @@ namespace Gaussians.Core
             cmd.DispatchCompute(m_CS, m_kernelInitDeviceRadixSort, m_InitDispatchGroups, 1, 1);
 
             // Execute the sort algorithm in 8-bit increments
-            for (constants.radixShift = 0; constants.radixShift < 32; constants.radixShift += DEVICE_RADIX_SORT_BITS)
+            for (constants.radixShift = (uint)(32 - keyBits); constants.radixShift < 32; constants.radixShift += DEVICE_RADIX_SORT_BITS)
             {
                 cmd.SetComputeIntParam(m_CS, "e_radixShift", (int)constants.radixShift);
 
                 //Upsweep
                 cmd.SetComputeBufferParam(m_CS, m_kernelUpsweep, "b_sort", srcKeyBuffer);
-                cmd.DispatchCompute(m_CS, m_kernelUpsweep, (int)constants.threadBlocks, 1, 1);
+                if (gpuCounts != null) cmd.DispatchCompute(m_CS, m_kernelUpsweep, gpuCounts, 8);
+                else cmd.DispatchCompute(m_CS, m_kernelUpsweep, (int)constants.threadBlocks, 1, 1);
 
                 // Scan
                 cmd.DispatchCompute(m_CS, m_kernelScan, (int)DEVICE_RADIX_SORT_RADIX, 1, 1);
@@ -202,7 +226,8 @@ namespace Gaussians.Core
                 cmd.SetComputeBufferParam(m_CS, m_kernelDownsweep, "b_sortPayload", srcPayloadBuffer);
                 cmd.SetComputeBufferParam(m_CS, m_kernelDownsweep, "b_alt", dstKeyBuffer);
                 cmd.SetComputeBufferParam(m_CS, m_kernelDownsweep, "b_altPayload", dstPayloadBuffer);
-                cmd.DispatchCompute(m_CS, m_kernelDownsweep, (int)constants.threadBlocks, 1, 1);
+                if (gpuCounts != null) cmd.DispatchCompute(m_CS, m_kernelDownsweep, gpuCounts, 8);
+                else cmd.DispatchCompute(m_CS, m_kernelDownsweep, (int)constants.threadBlocks, 1, 1);
 
                 // Swap
                 (srcKeyBuffer, dstKeyBuffer) = (dstKeyBuffer, srcKeyBuffer);

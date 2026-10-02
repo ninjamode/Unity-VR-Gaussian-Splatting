@@ -167,6 +167,9 @@ inline void GlobalHistExclusiveScanWLT16(uint gtid, uint waveSize)
 [numthreads(US_DIM, 1, 1)]
 void Upsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 {
+#if defined(GAUSSIANS_GPU_SORT_COUNT)
+    if (e_numKeys == 0) return; // Uniform across every thread in the group.
+#endif
     //get the wave size
     const uint waveSize = getWaveSize();
     
@@ -432,6 +435,9 @@ inline void ExclusiveThreadBlockScanWLT16(uint gtid, uint gid, uint waveSize)
 [numthreads(SCAN_DIM, 1, 1)]
 void Scan(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 {
+#if defined(GAUSSIANS_GPU_SORT_COUNT)
+    if (e_numKeys == 0) return; // Uniform across every thread in the group.
+#endif
     const uint waveSize = getWaveSize();
     if (waveSize >= 16)
         ExclusiveThreadBlockScanWGE16(gtid.x, gid.x, waveSize);
@@ -455,6 +461,9 @@ inline void LoadThreadBlockReductions(uint gtid, uint gid, uint exclusiveHistRed
 [numthreads(D_DIM, 1, 1)]
 void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 {
+#if defined(GAUSSIANS_GPU_SORT_COUNT)
+    if (e_numKeys == 0) return; // Uniform across every thread in the group.
+#endif
     KeyStruct keys;
     OffsetStruct offsets;
     const uint waveSize = getWaveSize();

@@ -15,10 +15,7 @@ namespace Gaussians.ThreeD
         public bool m_ConvertCompositeGammaToLinear = true;
         RTHandle m_RenderTarget;
 
-        // It can be used to configure render targets and their clear state. Also to create temporary render target textures.
-        // When empty this render pass will render to the active camera render target.
-        // You should never call CommandBuffer.SetRenderTarget. Instead call <c>ConfigureTarget</c> and <c>ConfigureClear</c>.
-        // The render pipeline will ensure target setup and clearing happens in an performance manner.
+        // Allocate a floating-point accumulation target with the camera's XR layout.
         protected override void Setup(ScriptableRenderContext renderContext, CommandBuffer cmd)
         {
             m_RenderTarget = RTHandles.Alloc(Vector2.one,
@@ -57,7 +54,6 @@ namespace Gaussians.ThreeD
             Material matComposite =
                 GaussianSplat3DRenderSystem.instance.SortAndRenderCompositeSplats(ctx.hdCamera.camera, ctx.cmd, m_ConvertCompositeGammaToLinear);
 
-            // compose
             ctx.cmd.BeginSample(GaussianSplat3DRenderSystem.s_ProfCompose);
             CoreUtils.SetRenderTarget(ctx.cmd, ctx.cameraColorBuffer, ClearFlag.None);
             CoreUtils.DrawFullScreen(ctx.cmd, matComposite, ctx.propertyBlock, shaderPassId: 0);

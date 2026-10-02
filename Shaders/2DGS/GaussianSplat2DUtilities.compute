@@ -462,17 +462,17 @@ void CSRotateSelection (uint3 id : SV_DispatchThreadID)
         uint rotVal = _SplatOtherMouseDown.Load(idx * otherStride);
         float4 rot = DecodeRotation(DecodePacked_10_10_10_2(rotVal));
 
-        //@TODO: correct rotation
+        // TODO: account for renderer transforms when applying the selection rotation.
         rot = QuatMul(rot, _SelectionDeltaRot);
 
         rotVal = EncodeQuatToNorm10(PackSmallest3Rotation(rot));
         _SplatOther.Store(idx * otherStride, rotVal);
     }
 
-    //@TODO: rotate SHs
+    // Selection rotation leaves SH coefficients in their original orientation.
 }
 
-//@TODO: maybe scale the splat scale itself too?
+// Selection scaling changes positions only; splat footprint scales are unchanged.
 [numthreads(GROUP_SIZE,1,1)]
 void CSScaleSelection (uint3 id : SV_DispatchThreadID)
 {

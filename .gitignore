@@ -6,6 +6,9 @@
 !Samples~/
 !Samples~/**
 
+!Tools~/
+!Tools~/**
+
 # OS
 .DS_Store
 Thumbs.db

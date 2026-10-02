@@ -11,7 +11,8 @@ namespace Gaussians.Benchmark
         public string display, stereoMode, refreshRateHz, frameBudgetMs;
         public string cameraPolicy = "Authored center-camera path; automatic camera transform tracking disabled. Runtime eye offsets/projections and compositor reprojection remain device-controlled.";
         public int eyeWidth, eyeHeight;
-        public float eyeResolutionScale, viewportScale;
+        public float eyeResolutionScale, viewportScale, foveationLevel;
+        public string foveationFlags;
     }
 
     public static class GaussianBenchmarkXr
@@ -43,16 +44,30 @@ namespace Gaussians.Benchmark
                 display = display.SubsystemDescriptor.id, stereoMode = XRSettings.stereoRenderingMode.ToString(),
                 eyeWidth = XRSettings.eyeTextureWidth, eyeHeight = XRSettings.eyeTextureHeight,
                 eyeResolutionScale = XRSettings.eyeTextureResolutionScale, viewportScale = XRSettings.renderViewportScale,
+                foveationLevel = display.foveatedRenderingLevel, foveationFlags = display.foveatedRenderingFlags.ToString(),
                 refreshRateHz = refreshAvailable ? refresh.ToString("R", CultureInfo.InvariantCulture) : "unavailable",
                 frameBudgetMs = refreshAvailable ? (1000f / refresh).ToString("R", CultureInfo.InvariantCulture) : "unavailable"
             };
         }
 
+        public static string SettingsError(GaussianBenchmarkConfig config, bool refreshAvailable, float refresh, float foveation)
+        {
+            if (config.requiredRefreshRateHz > 0 && (!refreshAvailable || !float.IsFinite(refresh) || Mathf.Abs(refresh - config.requiredRefreshRateHz) > .1f))
+                return $"XR refresh must be {config.requiredRefreshRateHz} Hz; actual is {(refreshAvailable ? refresh.ToString(CultureInfo.InvariantCulture) : "unavailable")}.";
+            if (config.disableXrFoveation && (!float.IsFinite(foveation) || foveation != 0))
+                return "Foveation must remain off for this benchmark.";
+            return null;
+        }
+
         public static GaussianBenchmarkTrial.XrTiming Sample(XRDisplaySubsystem display, int observation)
         {
+            // Preserve provider-reported counts without assuming cumulative or per-frame semantics.
+            // Unity providers may differ; inspect the pilot before deriving a missed-frame total.
+            if (!display.TryGetDroppedFrameCount(out int dropped)) dropped = -1;
+            if (!display.TryGetFramePresentCount(out int presented)) presented = -1;
             return new GaussianBenchmarkTrial.XrTiming
             {
-                observation = observation,
+                observation = observation, droppedFrames = dropped, presentedFrames = presented,
                 appGpu = Milliseconds(display.TryGetAppGPUTimeLastFrame(out float app), app),
                 compositorGpu = Milliseconds(display.TryGetCompositorGPUTimeLastFrame(out float compositor), compositor)
             };

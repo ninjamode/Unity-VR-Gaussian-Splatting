@@ -10,6 +10,8 @@ namespace Gaussians.Benchmark.Editor
         static IEnumerable<string> Fields(SerializedProperty property)
         {
             yield return "id";
+            yield return "comparisonGroup";
+            yield return "diagnosticsOnly";
             yield return "subject";
             yield return "sharedSettings";
             if (!property.FindPropertyRelative("sharedSettings").objectReferenceValue) yield return "settings";

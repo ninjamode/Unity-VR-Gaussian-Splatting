@@ -42,7 +42,7 @@ namespace Gaussians.TwoD.Editor
             bool execute = evt.type == EventType.ExecuteCommand;
             switch (evt.commandName)
             {
-                // ugh, EventCommandNames string constants is internal :(
+                // Unity keeps EventCommandNames internal, so match its command strings here.
                 case "SoftDelete":
                 case "Delete":
                     if (execute)

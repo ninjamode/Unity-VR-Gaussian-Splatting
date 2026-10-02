@@ -25,6 +25,7 @@ Shader "Gaussians/3D/Render Splats"
         uint _SplatEyeIndex;
         uint _ConvertGammaToLinear;
         float _AlphaCutoff;
+        uint _OpacityAwareBounds;
 
         struct appdata
         {
@@ -72,7 +73,17 @@ Shader "Gaussians/3D/Render Splats"
                           f16tof32(view.color.y >> 16), f16tof32(view.color.y));
             if (_ConvertGammaToLinear != 0u)
                 o.col.rgb = GammaToLinearSpace(o.col.rgb);
-            float2 corner = (float2(input.vertexID & 1, (input.vertexID >> 1) & 1) * 2.0 - 1.0) * 2.0;
+            if (_SplatBitsValid != 0u && (_SplatSelectedBits.Load((index / 32u) * 4u) & (1u << (index & 31u))) != 0u)
+                o.col.a = -1;
+            float halfExtent = SplatQuadHalfExtent(o.col.a, _AlphaCutoff, _OpacityAwareBounds);
+            if (halfExtent <= 0.0)
+            {
+                o.vertex = asfloat(0x7fc00000);
+                return o;
+            }
+            float2 corner = (float2(input.vertexID & 1, (input.vertexID >> 1) & 1) * 2.0 - 1.0) * halfExtent;
+            // Keep the same local Gaussian coordinates and axes: changing only
+            // geometry coverage must not rescale the falloff or foveation inverse.
             o.pos = corner;
             o.vertex = view.pos;
             o.vertex.xy += (corner.x * view.axis1 + corner.y * view.axis2) * (2.0 / _ScreenParams.xy) * view.pos.w;
@@ -86,8 +97,6 @@ Shader "Gaussians/3D/Render Splats"
             float det = axis1.x * axis2.y - axis2.x * axis1.y;
             o.inverseAxes = abs(det) > 1.0e-12 ? float4(axis2.y, -axis2.x, -axis1.y, axis1.x) / det : 0;
         #endif
-            if (_SplatBitsValid != 0u && (_SplatSelectedBits.Load((index / 32u) * 4u) & (1u << (index & 31u))) != 0u)
-                o.col.a = -1;
         #if defined(GAUSSIANS_DIRECT_TRANSPARENT)
         #if UNITY_UV_STARTS_AT_TOP
             // View records use render-texture projection. Match the actual camera

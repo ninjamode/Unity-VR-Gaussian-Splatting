@@ -611,10 +611,8 @@ float GetSplatViewRadiusPixels(SplatViewData2D view)
 //
 // There does not seem to be a good way to detect this situation in Unity; work around it
 // by setting _CameraTargetTexture global texture to BuiltinRenderTextureType.CameraTarget
-// from the command buffer. When CameraTarget will be null (i.e. backbuffer), the _TexeSize
+// from the command buffer. When CameraTarget is null (the backbuffer), its _TexelSize
 // property of the texture will get set to (1,1,1,1).
-//
-// One could hope someday Unity will fix all this upside-down thingy...
 float4 _CameraTargetTexture_TexelSize;
 void FlipProjectionIfBackbuffer(inout float4 vpos)
 {

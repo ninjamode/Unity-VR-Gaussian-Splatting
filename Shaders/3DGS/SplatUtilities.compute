@@ -24,6 +24,12 @@
 #pragma kernel CSExportData
 #pragma kernel CSCopySplats
 
+// Stable GPU visibility compaction (canonical ID order).
+#pragma kernel CSCountVisibleGroups
+#pragma kernel CSScanVisibleGroups
+#pragma kernel CSCompactVisible
+#pragma multi_compile_local _ GAUSSIANS_GPU_SORT_COUNT
+
 // DeviceRadixSort
 #pragma multi_compile __ KEY_UINT KEY_INT KEY_FLOAT
 #pragma multi_compile __ PAYLOAD_UINT PAYLOAD_INT PAYLOAD_FLOAT
@@ -34,6 +40,9 @@
 #pragma kernel Upsweep
 #pragma kernel Scan
 #pragma kernel Downsweep
+
+// Separate instrumented kernel: ordinary rendering compiles out all counter atomics.
+#pragma kernel CSCalcViewDataDiagnostics GAUSSIANS_BENCHMARK_COUNTS
 
 // GPU sorting needs wave ops
 #pragma require wavebasic
@@ -52,13 +61,21 @@ float4x4 _ProjectionMatrix;
 uint _ViewDataOffset;
 uint _SortDescending;
 float _MinimumSplatRadiusPixels;
-float _SplatNearClip;
+float _SplatNearClip; // Raw camera near plane, used only to classify benchmark rejections.
+float _SplatCullDistance;
+float _MinimumSplatOpacity;
+uint _SortKeyBits;
+uint _DeferredSHLoading;
+uint _EarlyFrustumCulling;
+uint _OpacityAwareBounds;
+float _AlphaCutoff;
 float4 _VecScreenParams;
 float4 _VecWorldSpaceCameraPos;
 int _SelectionMode;
 
 RWStructuredBuffer<uint> _SplatSortDistances;
 RWStructuredBuffer<uint> _SplatSortKeys;
+StructuredBuffer<uint> _SplatSortInput;
 uint _SplatCount;
 
 // radix sort etc. friendly, see http://stereopsis.com/radix.html
@@ -86,13 +103,16 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
     if (idx >= _SplatCount)
         return;
 
-    uint origIdx = _SplatSortKeys[idx];
+    // Never bind the same allocation as both an SRV and UAV (D3D11 forbids it).
+    uint origIdx = _SortKeyBits == 24u ? _SplatSortInput[idx] : _SplatSortKeys[idx];
 
     float3 pos = LoadSplatPos(origIdx);
     pos = mul(_MatrixMV, float4(pos.xyz, 1)).xyz;
 
     uint key = FloatToSortableUint(pos.z);
     _SplatSortDistances[idx] = _SortDescending != 0u ? ~key : key;
+    // Three radix passes start in scratch and finish in the usual draw buffers.
+    if (_SortKeyBits == 24u) _SplatSortKeys[idx] = origIdx;
 }
 
 RWStructuredBuffer<SplatViewData> _SplatViewData;
@@ -129,6 +149,37 @@ void DecomposeCovariance(float3 cov2d, out float2 v1, out float2 v2)
     v2 = float2(-direction.y, direction.x) * min(sqrt(2 * max(mid - radius, 0)), 4096);
 }
 
+// Fail open for uncertain projections. Bounds are in pixels around the clip center.
+// One pixel of guard also covers edge rasterization and small arithmetic differences.
+bool OutsideSplatViewport(float4 clip, float2 extent)
+{
+    if (clip.w <= 1.0e-6 || !all(isfinite(clip)) || !all(isfinite(extent))) return false;
+    float2 distance = (abs(clip.xy / clip.w) - 1.0) * _VecScreenParams.xy * 0.5;
+    return any(distance > extent * 1.001 + 1.0);
+}
+
+bool EarlyOutsideSplatViewport(float3 pos, float3x3 rotScale, float4 centerClip)
+{
+    // In-view centers cannot be rejected; avoid extra matrix work for these.
+    if (centerClip.w <= 1.0e-6 || all(abs(centerClip.xy) <= centerClip.w)) return false;
+    // Match CalcCovariance2D's clamped Jacobian, including asymmetric/orthographic
+    // projections. Work on current (already deformed) attributes, never stale visibility.
+    float4 clip = mul(_ProjectionMatrix, mul(_MatrixMV, float4(pos, 1)));
+    if (clip.w <= 1.0e-6 || !all(isfinite(clip))) return false;
+    float2 ndc = clamp(clip.xy / clip.w, -1.3, 1.3);
+    float3 jx = (_ProjectionMatrix[0].xyz - ndc.x * _ProjectionMatrix[3].xyz) / clip.w * _VecScreenParams.x * 0.5;
+    float3 jy = (_ProjectionMatrix[1].xyz - ndc.y * _ProjectionMatrix[3].xyz) / clip.w * _VecScreenParams.y * 0.5;
+    float3 rx = mul(mul(jx, (float3x3)_MatrixMV), rotScale) * _SplatScale;
+    float3 ry = mul(mul(jy, (float3x3)_MatrixMV), rotScale) * _SplatScale;
+    float2 diagonal = float2(dot(rx, rx), dot(ry, ry)) + 0.3;
+    // For axes sqrt(2*lambda)*eigenvector and half-extent 2, Cauchy-Schwarz
+    // gives quad AABB <= 4*sqrt(diagonal). Do not assume a 3-sigma ellipse:
+    // the rasterized square extends beyond it. Inflate for cancellation in the
+    // full covariance path; axis clamping can only make its footprint smaller.
+    float errorGuard = (diagonal.x + diagonal.y) * 1.0e-4;
+    return OutsideSplatViewport(centerClip, 4.0 * sqrt(diagonal + errorGuard));
+}
+
 bool IsSplatCut(float3 pos)
 {
     bool finalCut = false;
@@ -154,49 +205,55 @@ bool IsSplatCut(float3 pos)
     return finalCut;
 }
 
-[numthreads(GROUP_SIZE,1,1)]
-void CSCalcViewData (uint3 id : SV_DispatchThreadID)
+#if defined(GAUSSIANS_BENCHMARK_COUNTS)
+RWStructuredBuffer<uint> _BenchmarkCounts;
+#define BENCHMARK_COUNT(reason) InterlockedAdd(_BenchmarkCounts[reason], 1)
+#else
+#define BENCHMARK_COUNT(reason)
+#endif
+
+void CalculateViewData(uint3 id)
 {
     uint idx = id.x;
     if (idx >= _SplatCount)
         return;
 
-    SplatData splat = LoadSplatData(idx);
+    BENCHMARK_COUNT(0);
     SplatViewData view = (SplatViewData)0;
-    
-    float3 centerWorldPos = mul(_MatrixObjectToWorld, float4(splat.pos,1)).xyz;
-    float4 centerClipPos = mul(_MatrixMVP, float4(splat.pos, 1));
-    half opacityScale = _SplatOpacityScale;
-    float splatScale = _SplatScale;
-
-    // deleted?
+    // Rejected records overwrite the previous view; valid records are written once.
+#define REJECT_SPLAT_VIEW(reason) { BENCHMARK_COUNT(reason); _SplatViewData[_ViewDataOffset + idx] = (SplatViewData)0; return; }
+    bool selected = false;
     if (_SplatBitsValid)
     {
-        uint wordIdx = idx / 32;
-        uint bitIdx = idx & 31;
-        uint wordVal = _SplatDeletedBits.Load(wordIdx * 4);
-        if (wordVal & (1 << bitIdx))
-        {
-            centerClipPos.w = 0;
-        }
+        uint mask = 1u << (idx & 31u);
+        if ((_SplatDeletedBits.Load((idx / 32u) * 4u) & mask) != 0u) REJECT_SPLAT_VIEW(1)
+        selected = (_SplatSelectedBits.Load((idx / 32u) * 4u) & mask) != 0u;
     }
+    // Float sources are already deformed by the source provider at this point.
+    // Optional deferred SH allows an independent A/B comparison.
+    SplatData splat = LoadSplatData(idx, _DeferredSHLoading == 0);
+    if (!all(isfinite(float4(splat.pos, splat.opacity))) ||
+        !all(isfinite(splat.scale)) || !all(isfinite(splat.rot))) REJECT_SPLAT_VIEW(2)
+    if (IsSplatCut(splat.pos)) REJECT_SPLAT_VIEW(3)
+    float depth = -mul(_MatrixMV, float4(splat.pos, 1)).z;
+    // CPU combines camera near plane and optional minimum center depth. The reason
+    // expression compiles out outside diagnostics, leaving one depth comparison.
+    if (depth <= _SplatCullDistance)
+        REJECT_SPLAT_VIEW(depth <= max(_SplatNearClip, 1.0e-6) ? 4 : 6)
+    half effectiveOpacity = min(splat.opacity * (half)_SplatOpacityScale, 65000);
+    if (!selected && (effectiveOpacity <= 0 || effectiveOpacity < _MinimumSplatOpacity)) REJECT_SPLAT_VIEW(5)
+    float3x3 splatRotScaleMat = CalcMatrixFromRotationScale(splat.rot, splat.scale);
 
-    // cutouts
-    if (IsSplatCut(splat.pos))
-    {
-        centerClipPos.w = 0;
-    }
+    float3 centerWorldPos = mul(_MatrixObjectToWorld, float4(splat.pos,1)).xyz;
+    float4 centerClipPos = mul(_MatrixMVP, float4(splat.pos, 1));
+    float splatScale = _SplatScale;
 
     view.pos = centerClipPos;
-    bool behindCam = centerClipPos.w <= 0 || mul(_MatrixMV, float4(splat.pos, 1)).z >= -_SplatNearClip ||
-        splat.opacity <= 0 || !all(isfinite(float4(splat.pos, splat.opacity)));
-    if (behindCam) view.pos.w = 0;
-    if (!behindCam)
+    if (centerClipPos.w > 0)
     {
-        float4 boxRot = splat.rot;
-        float3 boxSize = splat.scale;
 
-        float3x3 splatRotScaleMat = CalcMatrixFromRotationScale(boxRot, boxSize);
+        if (_EarlyFrustumCulling != 0u && EarlyOutsideSplatViewport(splat.pos, splatRotScaleMat, centerClipPos))
+            REJECT_SPLAT_VIEW(11)
 
         float3 cov3d0, cov3d1;
         CalcCovariance3D(splatRotScaleMat, cov3d0, cov3d1);
@@ -213,11 +270,13 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
             float largestVariance = max(0.0, 0.5 * (rawDiagonal.x + rawDiagonal.y) +
                 length(float2(0.5 * (rawDiagonal.x - rawDiagonal.y), cov2d.y)));
             if (3.0 * sqrt(largestVariance) < _MinimumSplatRadiusPixels)
-                view.pos.w = 0;
+                REJECT_SPLAT_VIEW(7)
         }
         DecomposeCovariance(cov2d, view.axis1, view.axis2);
         if (!all(isfinite(float4(view.axis1, view.axis2))))
-            view.pos.w = 0;
+            REJECT_SPLAT_VIEW(8)
+
+        if (_DeferredSHLoading != 0) splat.sh = LoadSplatSH(idx, splat.sh.col);
 
         float3 worldViewDir = _VecWorldSpaceCameraPos.xyz - centerWorldPos;
         float3 objViewDir = mul((float3x3)_MatrixWorldToObject, worldViewDir);
@@ -225,13 +284,22 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
 
         half4 col;
         col.rgb = ShadeSH(splat.sh, objViewDir, _SHOrder, _SHOnly != 0);
-        col.a = min(splat.opacity * opacityScale, 65000);
+        col.a = effectiveOpacity;
         view.color.x = (f32tof16(col.r) << 16) | f32tof16(col.g);
         view.color.y = (f32tof16(col.b) << 16) | f32tof16(col.a);
+        BENCHMARK_COUNT(10);
     }
+    else { BENCHMARK_COUNT(9); }
     
     _SplatViewData[_ViewDataOffset + idx] = view;
+#undef REJECT_SPLAT_VIEW
 }
+
+[numthreads(GROUP_SIZE,1,1)]
+void CSCalcViewData(uint3 id : SV_DispatchThreadID) { CalculateViewData(id); }
+[numthreads(GROUP_SIZE,1,1)]
+void CSCalcViewDataDiagnostics(uint3 id : SV_DispatchThreadID) { CalculateViewData(id); }
+#undef BENCHMARK_COUNT
 
 
 RWByteAddressBuffer _DstBuffer;
@@ -468,17 +536,17 @@ void CSRotateSelection (uint3 id : SV_DispatchThreadID)
         uint rotVal = _SplatOtherMouseDown.Load(idx * otherStride);
         float4 rot = DecodeRotation(DecodePacked_10_10_10_2(rotVal));
 
-        //@TODO: correct rotation
+        // TODO: account for renderer transforms when applying the selection rotation.
         rot = QuatMul(rot, _SelectionDeltaRot);
 
         rotVal = EncodeQuatToNorm10(PackSmallest3Rotation(rot));
         _SplatOther.Store(idx * otherStride, rotVal);
     }
 
-    //@TODO: rotate SHs
+    // Selection rotation leaves SH coefficients in their original orientation.
 }
 
-//@TODO: maybe scale the splat scale itself too?
+// Selection scaling changes positions only; splat footprint scales are unchanged.
 [numthreads(GROUP_SIZE,1,1)]
 void CSScaleSelection (uint3 id : SV_DispatchThreadID)
 {
@@ -737,4 +805,80 @@ void CSCopySplats (uint3 id : SV_DispatchThreadID)
         uint dstBitIdx = dstIdx & 31;
         _CopyDstEditDeleted.InterlockedOr(dstWordIdx * 4, 1u << dstBitIdx);
     }
+}
+
+// Metadata layout (uints): count, radix blocks, dispatch xyz, indexed draw args.
+// The same GPU-written buffer drives sorting and drawing without CPU readback.
+RWByteAddressBuffer _CompactArgs;
+RWStructuredBuffer<uint> _CompactGroups;
+uint _CompactViewCount;
+uint _CompactGroupCount;
+uint _CompactInstanceMultiplier;
+groupshared uint gs_VisiblePrefix[256];
+
+uint VisiblePrefix(uint lane, uint value)
+{
+    gs_VisiblePrefix[lane] = value;
+    GroupMemoryBarrierWithGroupSync();
+    for (uint offset = 1; offset < 256; offset <<= 1)
+    {
+        uint addend = lane >= offset ? gs_VisiblePrefix[lane - offset] : 0;
+        GroupMemoryBarrierWithGroupSync();
+        gs_VisiblePrefix[lane] += addend;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    return gs_VisiblePrefix[lane];
+}
+
+uint IsVisibleSplat(uint idx)
+{
+    if (idx >= _SplatCount) return 0;
+    // Stereo uses a union: a splat needed by either eye must survive.
+    for (uint eye = 0; eye < _CompactViewCount; ++eye)
+        if (_SplatViewData[eye * _SplatCount + idx].pos.w > 0) return 1;
+    return 0;
+}
+
+[numthreads(256,1,1)]
+void CSCountVisibleGroups(uint3 id : SV_DispatchThreadID, uint3 tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
+{
+    uint prefix = VisiblePrefix(tid.x, IsVisibleSplat(id.x));
+    if (tid.x == 255) _CompactGroups[gid.x] = prefix;
+}
+
+[numthreads(256,1,1)]
+void CSScanVisibleGroups(uint3 tid : SV_GroupThreadID)
+{
+    uint total = 0;
+    for (uint start = 0; start < _CompactGroupCount; start += 256)
+    {
+        uint idx = start + tid.x;
+        uint count = idx < _CompactGroupCount ? _CompactGroups[idx] : 0;
+        uint prefix = VisiblePrefix(tid.x, count);
+        if (idx < _CompactGroupCount) _CompactGroups[idx] = total + prefix - count;
+        total += gs_VisiblePrefix[255];
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (tid.x == 0)
+    {
+        uint blocks = (total + 3839) / 3840;
+        _CompactArgs.Store(0, total);
+        _CompactArgs.Store(4, blocks);
+        _CompactArgs.Store3(8, uint3(max(1u, blocks), 1, 1));
+        _CompactArgs.Store4(20, uint4(6, total * _CompactInstanceMultiplier, 0, 0));
+        _CompactArgs.Store(36, 0);
+    }
+}
+
+[numthreads(256,1,1)]
+void CSCompactVisible(uint3 id : SV_DispatchThreadID, uint3 tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
+{
+    uint visible = IsVisibleSplat(id.x);
+    uint prefix = VisiblePrefix(tid.x, visible);
+    if (visible == 0) return;
+    uint outputIdx = _CompactGroups[gid.x] + prefix - 1;
+    float3 pos = LoadSplatPos(id.x);
+    uint key = FloatToSortableUint(mul(_MatrixMV, float4(pos, 1)).z);
+    _SplatSortDistances[outputIdx] = _SortDescending != 0 ? ~key : key;
+    _SplatSortKeys[outputIdx] = id.x;
 }

@@ -76,7 +76,6 @@ namespace Gaussians.ThreeD.Editor.Utils
             if (fractBits < 0 || fractBits > 24)
                 throw new IOException($"SPZ {filePath} read error, out of range fractional bits {fractBits}");
 
-            // allocate temporary storage
             int shCoeffs = SHCoeffsForLevel(shLevel);
             NativeArray<byte> packedPos = new(splatCount * 3 * 3, Allocator.Persistent);
             NativeArray<byte> packedScale = new(splatCount * 3, Allocator.Persistent);
@@ -85,7 +84,6 @@ namespace Gaussians.ThreeD.Editor.Utils
             NativeArray<byte> packedCol = new(splatCount * 3, Allocator.Persistent);
             NativeArray<byte> packedSh = new(splatCount * 3 * shCoeffs, Allocator.Persistent);
 
-            // read file contents into temporaries
             bool readOk = true;
             readOk &= gz.Read(packedPos) == packedPos.Length;
             readOk &= gz.Read(packedAlpha) == packedAlpha.Length;

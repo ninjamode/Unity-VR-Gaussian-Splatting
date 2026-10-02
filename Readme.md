@@ -1,40 +1,53 @@
 # Unity Gaussians
 
-Gaussian Splatting for Unity, focusing on Mixed Reality support. Works with 3DGS and 2DGS models, renders multipass and instance on common XR and VR headsets such as the Quest 3 and Apple Vision Pro. This project builds upon the great work in [aras-p/UnityGaussianSplatting]. Check that project for more related info.
+Gaussian Splatting for Unity, with a focus on Mixed Reality. Import and render trained 3DGS and 2DGS models, or animate supported 4DGS models through the 3D renderer. Includes single-pass instanced stereo rendering with foveation support.
 
-## Usage
+This package builds on [aras-p/UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting), with changes for improved performance especially in XR.
 
-Install via the Unity Package manager:
-1. Open package manager, click the plus button, select "Add package from git URL..."
-2. Enter `https://github.com/ninjamode/UnityGaussians.git`
+**NOTE**<br>
+This is a research project. No support.
 
-To import and create Gaussian Splat assets:
-1. In the menu bar, go to Tools -> Unity Gaussians -> Create and select your Gaussian type
-2. In the just opened editor window, select the optimized ply file, chose a quality level, and press "Create Asset"
+## Installation
 
-To view Gaussians:
-1. Add a Gaussian Splat Renderer component to a GameObject. Select 2D or 3D depending on the type you want to show
-2. Select the imported asset
+Requires **Unity 6000.3 or later** and **D3D12, Metal or Vulkan**. Burst, Collections and Mathematics are installed as package dependencies. URP/HDRP integrations use Unity 6 render pipelines; 4D import and playback additionally require **Unity AI Inference 2.6.x**.
 
-## 4DGS Support
+In the Unity Package Manager, choose **Add package from git URL** and enter:
 
-4DGS rendering needs a conversion step before importing, to be done in the 4DGS training environment. The offline [4DGS server exporter](Tools/4DGS-Exporter/README.md) converts trained HexPlane deformation checkpoints into portable FP32 tensors to be loaded into Unity.
+```text
+https://github.com/ninjamode/UnityGaussians.git
+```
 
-Transfer the `Tools/4DGS-Exporter` directory to the training environment and run `export_4dgs.py`. Check the command line help and Readme for details.
+For a local checkout, choose **Add package from disk** and select this folder's `package.json`.
 
-In Unity, with Unity AI Inference 2.6.x installed, use **Tools -> Gaussians -> 4D -> Create Splat Asset** to import. Display the imported **<model>-canonical3d.asset** with the existing **3D Gaussian Splat Renderer**. It renders independently of inference and has no playback information. Add one **4D Gaussian Deformation** component and assign its matching **<model>-inference.asset** for GPU deformation, Play/Pause/Stop, seeking, looping and speed controls. See the [4DGS Unity guide](Documentation~/4DGS.md) for more info.
+## Quick start
+
+1. Open **Tools → Gaussians → 3D → Create Splat Asset** or **2D → Create Splat Asset**, select your trained Gaussian file, choose a quality preset and click **Create Asset**.
+2. Add **Gaussians → 3D Splat Renderer** or **2D Splat Renderer** to a GameObject and assign the generated asset.
+3. Configure the render pipeline. Built-in uses camera hooks automatically. For URP, add **Gaussian Splat 3D URP Feature** or **Gaussian Splat 2D URP Feature** to the camera's renderer asset and keep Render Graph enabled. For HDRP, add the matching **Gaussian Splat 3D/2D HDRP Pass** to a Custom Pass Volume before transparent rendering.
+
+Use the [3DGS guide](Documentation~/3DGS.md) for import formats, rendering settings and sorting considerations. Keep generated data files with their assets.
+
+## Device Support
+
+Works on desktop as well as Quest 3. Apple Vision Pro should be supported but is untested.
+
+## 4DGS
+
+A little export helper is necessary to have all the data for runtime use in unity. Supported models use the HexPlane + MLP architecture from [hustvl/4DGaussians](https://github.com/hustvl/4DGaussians).
+
+Export your trained checkpoint with the [offline exporter](Tools/4DGS-Exporter/README.md), then copy its whole output folder to your Unity machine. With Unity AI Inference installed, use **Tools → Gaussians → 4D → Create Splat Asset**.
+
+Assign `<model>-canonical3d.asset` to a **3D Splat Renderer**, add **4D Gaussian Deformation** to the same GameObject and assign the matching `<model>-inference.asset`. The canonical model can render without inference. See the [4DGS guide](Documentation~/4DGS.md) for import and playback.
 
 ## Limitations
 
-- Gaussians are still not super fast on XR devices. Benchmark your stuff.
-- Needs D3D12, Metal or Vulkan graphics APIs.
-- Only tested for desktop and XR devices.
+- WebGL and OpenGL graphics APIs are not supported.
+- Models are sorted individually. Overlapping renderer objects do not share a global per-splat order.
+- Lower sort precision and size/opacity pruning trade visual quality for reduced work. Check output on the intended device and pipeline.
+- Selection editing can be flaky.
 
-## Acknowledgements
+## Acknowledgements and license
 
-The 3D Gaussian Splatting implementation in this package is based on
-[aras-p/UnityGaussianSplatting], originally developed by Aras Pranckevičius.
+The 3D implementation is derived from Aras Pranckevičius' [UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting). Thank you! The 2D renderer adapts the same foundation with different loading and display logic.
 
-This package contains substantial modifications to the original renderer, including instanced rendering, direct render path and linear color support.
-
-2DGS support is based on that project too, with modified loading and displaying logic.
+Package code is available under the [MIT license](LICENSE.md). See [third-party notices](THIRD%20PARTY%20NOTICES.md) for included software. Trained models and datasets retain their own licenses.
