@@ -2,10 +2,10 @@
 
 Gaussian Splatting for Unity, with a focus on Mixed Reality. Import and render trained 3DGS and 2DGS models, or animate supported 4DGS models through the 3D renderer. Includes single-pass instanced stereo rendering with foveation support.
 
-This package builds on [aras-p/UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting), with changes for improved performance especially in XR.
+This adds performance improvements targeting XR, 2DGS and 4DGS support, instanced and foveated rendering, among others. Now distributed as a Unity package that can directly be installed and used.
 
 **NOTE**<br>
-This is a research project. No support.
+This is a research project building on [UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting). No support.
 
 ## Installation
 
@@ -14,22 +14,28 @@ Requires **Unity 6000.3 or later** and **D3D12, Metal or Vulkan**. Burst, Collec
 In the Unity Package Manager, choose **Add package from git URL** and enter:
 
 ```text
-https://github.com/ninjamode/UnityGaussians.git
+https://github.com/ninjamode/Unity-VR-Gaussian-Splatting.git
 ```
 
 For a local checkout, choose **Add package from disk** and select this folder's `package.json`.
 
 ## Quick start
 
-1. Open **Tools → Gaussians → 3D → Create Splat Asset** or **2D → Create Splat Asset**, select your trained Gaussian file, choose a quality preset and click **Create Asset**.
-2. Add **Gaussians → 3D Splat Renderer** or **2D Splat Renderer** to a GameObject and assign the generated asset.
-3. Configure the render pipeline. Built-in uses camera hooks automatically. For URP, add **Gaussian Splat 3D URP Feature** or **Gaussian Splat 2D URP Feature** to the camera's renderer asset and keep Render Graph enabled. For HDRP, add the matching **Gaussian Splat 3D/2D HDRP Pass** to a Custom Pass Volume before transparent rendering.
+1. Open **Tools → Gaussians → 3D → Create Splat Asset**, select your trained Gaussian file, choose a quality preset and click **Create Asset**.
+2. Add **Gaussians → 3D Splat Renderer** to a GameObject and assign the generated asset.
+3. Configure the render pipeline. For URP, add **Gaussian Splat 3D URP Feature** to the camera's renderer asset and keep Render Graph enabled. For HDRP, add the matching **Gaussian Splat 3D/2D HDRP Pass** to a Custom Pass Volume before transparent rendering.
 
-Use the [3DGS guide](Documentation~/3DGS.md) for import formats, rendering settings and sorting considerations. Keep generated data files with their assets.
+Use the [3DGS guide](Documentation~/3DGS.md) for further info. Keep generated data files with their assets.
 
-## Device Support
+## General
 
-Works on desktop as well as Quest 3. Apple Vision Pro should be supported but is untested.
+**Device Support:** Works on desktop as well as Quest 3. Apple Vision Pro should be supported but is untested. Other VR systems should be fine too.
+
+Built-in doesnt need any special configuration, but is slower. HDRP is mostly untested.
+
+### 2DGS
+
+Same as with 3DGS, create 2D asset, add **2D Splat Renderer**, add the **Gaussian Splat 2D URP Feature or HDRP pass** to the camera asset.
 
 ## 4DGS
 
@@ -50,4 +56,4 @@ Assign `<model>-canonical3d.asset` to a **3D Splat Renderer**, add **4D Gaussian
 
 The 3D implementation is derived from Aras Pranckevičius' [UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting). Thank you! The 2D renderer adapts the same foundation with different loading and display logic.
 
-Package code is available under the [MIT license](LICENSE.md). See [third-party notices](THIRD%20PARTY%20NOTICES.md) for included software. Trained models and datasets retain their own licenses.
+Package code is available under the [MIT license](LICENSE.md). See [third-party notices](THIRD%20PARTY%20NOTICES.md) for included software. Trained models and datasets retain their own licenses. AIs have been used for coding support, bad ideas are my own.
