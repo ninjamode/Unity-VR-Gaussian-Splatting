@@ -23,9 +23,11 @@ For a local checkout, choose **Add package from disk** and select this folder's 
 
 1. Open **Tools → Gaussians → 3D → Create Splat Asset**, select your trained Gaussian file, choose a quality preset and click **Create Asset**.
 2. Add **Gaussians → 3D Splat Renderer** to a GameObject and assign the generated asset.
-3. Configure the render pipeline. For URP, add **Gaussian Splat 3D URP Feature** to the camera's renderer asset and keep Render Graph enabled. For HDRP, add the matching **Gaussian Splat 3D/2D HDRP Pass** to a Custom Pass Volume before transparent rendering.
+3. Configure the render pipeline. For URP, add **Gaussians** to the camera's renderer asset and keep Render Graph enabled. For HDRP, add **Gaussians HDRP Pass** to a Custom Pass Volume at **Before Transparent**. One feature/pass handles 3DGS, 2DGS and 4DGS automatically; no per-type setup is needed.
 
 Use the [3DGS guide](Documentation~/3DGS.md) for further info. Keep generated data files with their assets.
+
+Both splat renderer inspectors warn when an assigned renderer asset in the active URP pipeline lacks an enabled Gaussian feature, or when no enabled Gaussian HDRP pass is found at Before Transparent in an active loaded-scene volume. HDRP volume coverage and camera settings still determine where a configured pass runs.
 
 ## General
 
@@ -35,7 +37,7 @@ Built-in doesnt need any special configuration, but is slower. HDRP is mostly un
 
 ### 2DGS
 
-Same as with 3DGS, create 2D asset, add **2D Splat Renderer**, add the **Gaussian Splat 2D URP Feature or HDRP pass** to the camera asset.
+Create a 2D asset and add **2D Splat Renderer**. Use the same **Gaussians** URP feature or **Gaussians HDRP Pass** as 3DGS; do not add another feature/pass for 2DGS.
 
 ### 4DGS
 
@@ -44,6 +46,12 @@ A little export helper is necessary to have all the data for runtime use in unit
 Export your trained checkpoint with the [offline exporter](Tools/4DGS-Exporter/README.md), then copy its whole output folder to your Unity machine. With Unity AI Inference installed, use **Tools → Gaussians → 4D → Create Splat Asset**.
 
 Assign `<model>-canonical3d.asset` to a **3D Splat Renderer**, add **4D Gaussian Deformation** to the same GameObject and assign the matching `<model>-inference.asset`. The canonical model can render without inference. See the [4DGS guide](Documentation~/4DGS.md) for import and playback.
+
+## Pipeline integration
+
+Use one **Gaussians** URP feature or **Gaussians HDRP Pass** for all splat types.
+
+The unified integration skips unused paths. Composite groups render **2DGS, then 3DGS**; each retains its own shaders and color conversion. This does not add global sorting between models or between 2DGS and 3DGS. HDRP accumulation textures are allocated on first use and released when the pass is cleaned up.
 
 ## Limitations
 

@@ -1,9 +1,10 @@
 {
-    "name": "Gaussians.ThreeD.URP",
-    "rootNamespace": "Gaussians.ThreeD",
+    "name": "Gaussians.URP",
+    "rootNamespace": "Gaussians",
     "references": [
         "Gaussians.Core",
         "Gaussians.ThreeD",
+        "Gaussians.TwoD",
         "Unity.RenderPipelines.Core.Runtime",
         "Unity.RenderPipelines.Universal.Runtime"
     ],

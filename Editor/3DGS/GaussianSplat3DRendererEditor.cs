@@ -93,6 +93,7 @@ namespace Gaussians.ThreeD.Editor
                 return;
 
             serializedObject.Update();
+            Gaussians.Core.Editor.GaussianPipelineWarnings.Draw(is2D: false);
 
             GUILayout.Label("Data Asset", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(m_PropAsset);

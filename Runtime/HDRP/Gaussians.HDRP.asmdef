@@ -1,7 +1,9 @@
 {
-    "name": "Gaussians.TwoD.HDRP",
-    "rootNamespace": "Gaussians.TwoD",
+    "name": "Gaussians.HDRP",
+    "rootNamespace": "Gaussians",
     "references": [
+        "Gaussians.Core",
+        "Gaussians.ThreeD",
         "Gaussians.TwoD",
         "Unity.RenderPipelines.Core.Runtime",
         "Unity.RenderPipelines.HighDefinition.Runtime"

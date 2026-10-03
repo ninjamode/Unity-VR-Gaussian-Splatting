@@ -2,98 +2,34 @@
 #if GAUSSIANS_ENABLE_URP
 
 #if !UNITY_6000_0_OR_NEWER
-#error Unity 3D Gaussian Splatting URP support only works in Unity 6 or later
+#error Unity 2D Gaussian Splatting URP support only works in Unity 6 or later
 #endif
 
 using System.Collections.Generic;
 using Gaussians.Core;
+using Gaussians.TwoD;
+using static Gaussians.GaussiansURPUtilities;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.Rendering.RenderGraphModule;
 
-namespace Gaussians.ThreeD
+namespace Gaussians
 {
-    // ReSharper disable once InconsistentNaming
-    [UnityEngine.Scripting.APIUpdating.MovedFrom(true, "Gaussians.ThreeD", "Gaussians.ThreeD", "GaussianSplat3DURPFeature")]
-    class GaussianSplat3DURPFeature : ScriptableRendererFeature
+    internal sealed class GaussianSplat2DURPPasses
     {
-        [Tooltip("Convert the entire 3D composite group from gamma to linear after accumulation. Preserves legacy 3D color when enabled. Direct renderers have their own setting.")]
-        public bool m_ConvertCompositeGammaToLinear = true;
-
-        // Match URP 17's DrawObjectsPass policy without depending on its internal
-        // XRPassUniversal API. AVP permits intermediate foveation; Android/WSA XR
-        // requires the default viewport scale. Recheck this policy on URP upgrades.
-        internal static bool CanFoveateTarget(bool xrSupported, bool mobileXR, float viewportScale, bool backBuffer)
-            => xrSupported && (backBuffer || !mobileXR || viewportScale == 1.0f);
-
-        static void ConfigureFoveation(IRasterRenderGraphBuilder builder, UniversalCameraData camera,
-            bool backBuffer)
-        {
-            if (!camera.xr.enabled || !camera.xr.supportsFoveatedRendering)
-            {
-                builder.EnableFoveatedRasterization(false);
-                return;
-            }
-            bool mobileXR = Application.platform == RuntimePlatform.Android ||
-                Application.platform == RuntimePlatform.WSAPlayerX86 ||
-                Application.platform == RuntimePlatform.WSAPlayerX64 ||
-                Application.platform == RuntimePlatform.WSAPlayerARM;
-            builder.EnableFoveatedRasterization(CanFoveateTarget(camera.xr.supportsFoveatedRendering,
-                mobileXR, XRSystem.GetRenderViewportScale(), backBuffer));
-        }
-
-        static GaussianSplatCameraState CaptureCamera(in CameraData camera)
-        {
-            bool xr = camera.xr != null && camera.xr.enabled;
-            int viewCount = xr ? camera.xr.viewCount : 1;
-            var size = xr ? camera.xr.GetViewport(0).size :
-                new Vector2(camera.cameraTargetDescriptor.width, camera.cameraTargetDescriptor.height);
-            var rightSize = viewCount > 1 ? camera.xr.GetViewport(1).size : size;
-            var view = camera.GetViewMatrix();
-            var projection = camera.GetProjectionMatrix();
-            return new GaussianSplatCameraState(view, projection,
-                viewCount > 1 ? camera.GetViewMatrix(1) : view,
-                viewCount > 1 ? camera.GetProjectionMatrix(1) : projection,
-                Vector2Int.RoundToInt(size), Vector2Int.RoundToInt(rightSize), viewCount,
-                indirectInstanceMultiplier: viewCount > 1 && !SystemInfo.supportsMultiview ? viewCount : 1);
-        }
-
-        static GaussianSplatCameraState CaptureCamera(UniversalCameraData camera)
-        {
-            bool xr = camera.xr != null && camera.xr.enabled;
-            int viewCount = xr ? camera.xr.viewCount : 1;
-            var size = xr ? camera.xr.GetViewport(0).size :
-                new Vector2(camera.cameraTargetDescriptor.width, camera.cameraTargetDescriptor.height);
-            var rightSize = viewCount > 1 ? camera.xr.GetViewport(1).size : size;
-            var view = camera.GetViewMatrix();
-            var projection = camera.GetProjectionMatrix();
-            return new GaussianSplatCameraState(view, projection,
-                viewCount > 1 ? camera.GetViewMatrix(1) : view,
-                viewCount > 1 ? camera.GetProjectionMatrix(1) : projection,
-                Vector2Int.RoundToInt(size), Vector2Int.RoundToInt(rightSize), viewCount,
-                indirectInstanceMultiplier: viewCount > 1 && !SystemInfo.supportsMultiview ? viewCount : 1);
-        }
-
-        static void DrawSplats(RasterCommandBuffer cmd, List<GaussianSplat3DRenderSystem.SplatDraw> draws, int pass)
+        static void DrawSplats(RasterCommandBuffer cmd, List<GaussianSplat2DRenderSystem.SplatDraw> draws, int pass)
         {
             foreach (var draw in draws)
-            {
-                if (draw.IndirectArgs != null)
-                    cmd.DrawProceduralIndirect(draw.Indices, draw.Matrix, draw.Material, pass,
-                        MeshTopology.Triangles, draw.IndirectArgs, 20, draw.Properties);
-                else
-                    cmd.DrawProcedural(draw.Indices, draw.Matrix, draw.Material, pass,
-                        MeshTopology.Triangles, draw.IndexCount, draw.Count, draw.Properties);
-            }
+                cmd.DrawProcedural(draw.Indices, draw.Matrix, draw.Material, pass,
+                    MeshTopology.Triangles, draw.IndexCount, draw.Count, draw.Properties);
         }
 
-        class GaussianSplat3DRenderPass : ScriptableRenderPass
+        class GaussianSplat2DRenderPass : ScriptableRenderPass
         {
-            internal bool ConvertCompositeGammaToLinear = true;
             class PrepareData { internal Camera Camera; internal GaussianSplatCameraState CameraState; }
-            class AccumulateData { internal List<GaussianSplat3DRenderSystem.SplatDraw> Draws; }
+            class AccumulateData { internal List<GaussianSplat2DRenderSystem.SplatDraw> Draws; }
             class CompositeData
             {
                 internal TextureHandle Source;
@@ -106,14 +42,14 @@ namespace Gaussians.ThreeD
                 var cameraState = CaptureCamera(camera);
                 using var cameraScope = cameraState.Apply(camera.camera);
                 var resources = frameData.Get<UniversalResourceData>();
-                var system = GaussianSplat3DRenderSystem.instance;
+                var system = GaussianSplat2DRenderSystem.instance;
                 // Recording/execution may interleave cameras. Capture independent draw
                 // properties now and re-gather this camera before issuing compute work.
                 if (!system.GatherSplatsForCamera(camera.camera))
                     return;
-                var draws = system.GatherCompositeDraws(camera.camera, out var composite, ConvertCompositeGammaToLinear);
+                var draws = system.GatherCompositeDraws(camera.camera, out var composite);
 
-                using (var builder = renderGraph.AddUnsafePass<PrepareData>("Gaussians.3D.Prepare", out var data))
+                using (var builder = renderGraph.AddUnsafePass<PrepareData>("Gaussians.2D.Prepare", out var data))
                 {
                     data.Camera = camera.camera;
                     data.CameraState = cameraState;
@@ -125,7 +61,7 @@ namespace Gaussians.ThreeD
                     {
                         using var executionScope = pass.CameraState.Apply(pass.Camera);
                         var cmd = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                        var renderSystem = GaussianSplat3DRenderSystem.instance;
+                        var renderSystem = GaussianSplat2DRenderSystem.instance;
                         renderSystem.GatherSplatsForCamera(pass.Camera);
                         renderSystem.PrepareDirectSplats(pass.Camera, cmd);
                         renderSystem.PrepareCompositeSplats(pass.Camera, cmd);
@@ -142,8 +78,8 @@ namespace Gaussians.ThreeD
                 desc.bindMS = false;
                 // Retain XR array layout, viewport sizing and camera MSAA. Accumulation
                 // shares camera depth, so it must also use the camera's raster mapping.
-                var accumulation = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_GaussianSplatRT", true);
-                using (var builder = renderGraph.AddRasterRenderPass<AccumulateData>("Gaussians.3D.Accumulate", out var data))
+                var accumulation = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_GaussianSplat2DRT", true);
+                using (var builder = renderGraph.AddRasterRenderPass<AccumulateData>("Gaussians.2D.Accumulate", out var data))
                 {
                     data.Draws = draws;
                     builder.SetRenderAttachment(accumulation, 0, AccessFlags.ReadWrite);
@@ -153,7 +89,7 @@ namespace Gaussians.ThreeD
                     builder.SetRenderFunc(static (AccumulateData pass, RasterGraphContext context) =>
                         DrawSplats(context.cmd, pass.Draws, 0));
                 }
-                using (var builder = renderGraph.AddRasterRenderPass<CompositeData>("Gaussians.3D.Composite", out var data))
+                using (var builder = renderGraph.AddRasterRenderPass<CompositeData>("Gaussians.2D.Composite", out var data))
                 {
                     data.Source = accumulation;
                     data.Material = composite;
@@ -170,11 +106,11 @@ namespace Gaussians.ThreeD
             }
         }
 
-        sealed class GaussianSplat3DDepthPass : ScriptableRenderPass
+        sealed class GaussianSplat2DDepthPass : ScriptableRenderPass
         {
             sealed class PassData
             {
-                internal List<GaussianSplat3DRenderSystem.SplatDraw> Draws;
+                internal List<GaussianSplat2DRenderSystem.SplatDraw> Draws;
             }
 
             public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
@@ -182,12 +118,12 @@ namespace Gaussians.ThreeD
                 var camera = frameData.Get<UniversalCameraData>();
                 var cameraState = CaptureCamera(camera);
                 using var cameraScope = cameraState.Apply(camera.camera);
-                var draws = GaussianSplat3DRenderSystem.instance.GatherDepthDraws(camera.camera);
+                var draws = GaussianSplat2DRenderSystem.instance.GatherDepthDraws(camera.camera);
                 if (draws.Count == 0)
                     return;
 
                 var resources = frameData.Get<UniversalResourceData>();
-                using var builder = renderGraph.AddRasterRenderPass<PassData>("Gaussians.3D.Depth", out var data);
+                using var builder = renderGraph.AddRasterRenderPass<PassData>("Gaussians.2D.Depth", out var data);
                 data.Draws = draws;
                 // A camera color attachment also supplies a compatible XR raster
                 // layout on Metal backends that require one for depth-only draws.
@@ -200,17 +136,17 @@ namespace Gaussians.ThreeD
             }
         }
 
-        GaussianSplat3DRenderPass m_Pass;
-        GaussianSplat3DDepthPass m_DepthPass;
+        GaussianSplat2DRenderPass m_Pass;
+        GaussianSplat2DDepthPass m_DepthPass;
         bool m_HasCamera;
 
-        public override void Create()
+        internal void Create()
         {
-            m_Pass = new GaussianSplat3DRenderPass
+            m_Pass = new GaussianSplat2DRenderPass
             {
                 renderPassEvent = RenderPassEvent.BeforeRenderingTransparents
             };
-            m_DepthPass = new GaussianSplat3DDepthPass
+            m_DepthPass = new GaussianSplat2DDepthPass
             {
                 // Preserve all transparent color contributions, then populate the
                 // active depth attachment before URP's final XR Depth Copy.
@@ -218,11 +154,11 @@ namespace Gaussians.ThreeD
             };
         }
 
-        public override void OnCameraPreCull(ScriptableRenderer renderer, in CameraData cameraData)
+        internal void OnCameraPreCull(ScriptableRenderer renderer, in CameraData cameraData)
         {
             using var cameraScope = CaptureCamera(cameraData).Apply(cameraData.camera);
             m_HasCamera = false;
-            var system = GaussianSplat3DRenderSystem.instance;
+            var system = GaussianSplat2DRenderSystem.instance;
             if (!system.GatherSplatsForCamera(cameraData.camera))
                 return;
 
@@ -232,10 +168,10 @@ namespace Gaussians.ThreeD
             m_HasCamera = true;
         }
 
-        public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
+        internal void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
         {
             using var cameraScope = CaptureCamera(renderingData.cameraData).Apply(renderingData.cameraData.camera);
-            bool compositeIntermediate = GaussianSplat3DRenderSystem.instance.RequiresCompositeIntermediate;
+            bool compositeIntermediate = GaussianSplat2DRenderSystem.instance.RequiresCompositeIntermediate;
             if (!m_HasCamera && !compositeIntermediate)
                 return;
             // Intermediate accumulation shares camera depth. Force the camera to
@@ -243,19 +179,13 @@ namespace Gaussians.ThreeD
             // make their raster mappings disagree. URP handles the final resolve.
             // Apply to base cameras even when only an overlay sees the composite
             // object. URP chooses the stack's attachments from the base camera.
-            m_Pass.ConvertCompositeGammaToLinear = m_ConvertCompositeGammaToLinear;
             m_Pass.requiresIntermediateTexture = compositeIntermediate;
             renderer.EnqueuePass(m_Pass);
-            if (m_HasCamera && GaussianSplat3DRenderSystem.instance.HasDepthSplatsForCamera(renderingData.cameraData.camera))
+            if (m_HasCamera && GaussianSplat2DRenderSystem.instance.HasDepthSplatsForCamera(renderingData.cameraData.camera))
                 renderer.EnqueuePass(m_DepthPass);
         }
 
-        protected override void Dispose(bool disposing)
-        {
-            m_Pass = null;
-            m_DepthPass = null;
-        }
     }
 }
 
-#endif // #if GAUSSIANS_ENABLE_URP
+#endif

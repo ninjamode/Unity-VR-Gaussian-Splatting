@@ -7,7 +7,7 @@ Import trained 3DGS models and display them with the 3D renderer. See the [packa
 1. Open **Tools → Gaussians → 3D → Create Splat Asset**.
 2. Select a trained Gaussian `.ply` or version 2 `.spz` file, choose a quality preset and output folder, then click **Create Asset**. The default destination is `Assets/Gaussians/3D`.
 3. Add **Gaussians → 3D Splat Renderer** to a GameObject and assign the generated `.asset`. Keep its generated `.bytes` files together with it.
-4. Configure the pipeline: Built-in uses camera hooks automatically. URP needs **Gaussian Splat 3D URP Feature** on the camera's renderer asset with Render Graph enabled. HDRP needs **Gaussian Splat 3D HDRP Pass** in a Custom Pass Volume before transparent rendering.
+4. Configure the pipeline: Built-in uses camera hooks automatically. URP needs the **Gaussians** feature on the camera's renderer asset with Render Graph enabled. HDRP needs the **Gaussians HDRP Pass** in a Custom Pass Volume at **Before Transparent**. The same entry also handles 2DGS and 4DGS, and likely any future additions.
 
 Quality presets trade storage and precision. Higher-quality imports reduce compression artifacts; runtime SH order is a separate setting.
 
