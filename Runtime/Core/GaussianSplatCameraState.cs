@@ -30,6 +30,23 @@ namespace Gaussians.Core
             IndirectInstanceMultiplier = viewCount > 1 ? Mathf.Clamp(indirectInstanceMultiplier, 1, viewCount) : 1;
         }
 
+        // Preserve the existing shared center-eye sort/preparation matrices.
+        // Per-eye 3D view projection continues to use View/RightView directly.
+        internal void GetSharedMatrices(out Matrix4x4 view, out Matrix4x4 projection)
+        {
+            view = ViewCount > 1 ? AverageMatrices(View, RightView) : View;
+            projection = ViewCount > 1 ? AverageMatrices(Projection, RightProjection) : Projection;
+        }
+
+        static Matrix4x4 AverageMatrices(Matrix4x4 a, Matrix4x4 b)
+        {
+            Matrix4x4 result = default;
+            for (int row = 0; row < 4; ++row)
+                for (int column = 0; column < 4; ++column)
+                    result[row, column] = (a[row, column] + b[row, column]) * 0.5f;
+            return result;
+        }
+
         // Overrides exist only during a render callback. RenderGraph owns its own
         // value snapshot, so another camera or XR pass cannot overwrite its matrices.
         static Camera s_Camera;

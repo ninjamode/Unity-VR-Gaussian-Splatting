@@ -30,11 +30,13 @@ namespace Gaussians
         protected override void AggregateCullingParameters(ref ScriptableCullingParameters cullingParameters, HDCamera hdCamera)
         {
             var threeD = GaussianSplat3DRenderSystem.instance;
-            if (threeD.GatherSplatsForCamera(hdCamera.camera) && threeD.HasDirectSplats)
-                threeD.SubmitDirectSplatsForCamera(hdCamera.camera);
+            var threeDSelection = threeD.CollectForCamera(hdCamera.camera);
+            if (threeDSelection.HasDirect)
+                threeD.SubmitDirectSplatsForCamera(threeDSelection);
             var twoD = GaussianSplat2DRenderSystem.instance;
-            if (twoD.GatherSplatsForCamera(hdCamera.camera) && twoD.HasDirectSplats)
-                twoD.SubmitDirectSplatsForCamera(hdCamera.camera);
+            var twoDSelection = twoD.CollectForCamera(hdCamera.camera);
+            if (twoDSelection.HasDirect)
+                twoD.SubmitDirectSplatsForCamera(twoDSelection);
         }
 
         protected override void Execute(CustomPassContext ctx)
@@ -48,17 +50,18 @@ namespace Gaussians
         {
             var camera = ctx.hdCamera.camera;
             var system = GaussianSplat3DRenderSystem.instance;
-            if (!system.GatherSplatsForCamera(camera))
+            var selection = system.CollectForCamera(camera);
+            if (!selection.HasSplats)
                 return;
-            if (system.HasDirectSplats)
-                system.PrepareDirectSplats(camera, ctx.cmd);
-            if (!system.HasCompositeSplats)
+            if (selection.HasDirect)
+                system.PrepareDirectSplats(selection, ctx.cmd);
+            if (!selection.HasComposite)
                 return;
 
             m_ThreeDTarget ??= AllocateTarget("_GaussianSplatRT");
             ctx.cmd.SetGlobalTexture(m_ThreeDTarget.name, m_ThreeDTarget.nameID);
             CoreUtils.SetRenderTarget(ctx.cmd, m_ThreeDTarget, ctx.cameraDepthBuffer, ClearFlag.Color, Color.clear);
-            var composite = system.SortAndRenderCompositeSplats(camera, ctx.cmd, m_ConvertCompositeGammaToLinear);
+            var composite = system.SortAndRenderCompositeSplats(selection, ctx.cmd, m_ConvertCompositeGammaToLinear);
             ctx.cmd.BeginSample(GaussianSplat3DRenderSystem.s_ProfCompose);
             CoreUtils.SetRenderTarget(ctx.cmd, ctx.cameraColorBuffer, ClearFlag.None);
             CoreUtils.DrawFullScreen(ctx.cmd, composite, ctx.propertyBlock, shaderPassId: 0);
@@ -69,17 +72,18 @@ namespace Gaussians
         {
             var camera = ctx.hdCamera.camera;
             var system = GaussianSplat2DRenderSystem.instance;
-            if (!system.GatherSplatsForCamera(camera))
+            var selection = system.CollectForCamera(camera);
+            if (!selection.HasSplats)
                 return;
-            if (system.HasDirectSplats)
-                system.PrepareDirectSplats(camera, ctx.cmd);
-            if (!system.HasCompositeSplats)
+            if (selection.HasDirect)
+                system.PrepareDirectSplats(selection, ctx.cmd);
+            if (!selection.HasComposite)
                 return;
 
             m_TwoDTarget ??= AllocateTarget("_GaussianSplat2DRT");
             ctx.cmd.SetGlobalTexture(m_TwoDTarget.name, m_TwoDTarget.nameID);
             CoreUtils.SetRenderTarget(ctx.cmd, m_TwoDTarget, ctx.cameraDepthBuffer, ClearFlag.Color, Color.clear);
-            var composite = system.SortAndRenderCompositeSplats(camera, ctx.cmd);
+            var composite = system.SortAndRenderCompositeSplats(selection, ctx.cmd);
             ctx.cmd.BeginSample(GaussianSplat2DRenderSystem.s_ProfCompose);
             CoreUtils.SetRenderTarget(ctx.cmd, ctx.cameraColorBuffer, ClearFlag.None);
             CoreUtils.DrawFullScreen(ctx.cmd, composite, ctx.propertyBlock, shaderPassId: 0);

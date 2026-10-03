@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: MIT
 
 using System;
-using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
-using Unity.Profiling;
-using Unity.Profiling.LowLevel;
 using Gaussians.Core;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -17,7 +14,7 @@ namespace Gaussians.TwoD
     [ExecuteInEditMode]
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, "TwoDGS", "Gaussians.TwoD", "GaussianSplat2DRenderer")]
     [AddComponentMenu("Gaussians/2D Splat Renderer")]
-    public class GaussianSplat2DRenderer : MonoBehaviour
+    public partial class GaussianSplat2DRenderer : MonoBehaviour
     {
         public enum RenderMode
         {
@@ -96,7 +93,7 @@ namespace Gaussians.TwoD
         internal GraphicsBuffer m_GpuIndexBuffer;
 
         // these buffers are only for splat editing, and are lazily created
-        GraphicsBuffer m_GpuEditCutouts;
+        readonly GaussianCutoutBuffer m_CutoutBuffer = new();
         GraphicsBuffer m_GpuEditCountsBounds;
         GraphicsBuffer m_GpuEditSelected;
         GraphicsBuffer m_GpuEditDeleted;
@@ -113,131 +110,11 @@ namespace Gaussians.TwoD
         internal Material m_MatDebugBoxes;
         Mesh m_DirectQuadMesh;
 
-        internal struct CameraSortState
-        {
-            public int LastFrame;
-            public int RenderCount;
-            public bool BackToFront;
-            public bool HasSignature;
-            public Matrix4x4 MatrixMV;
-            public int RenderDataVersion;
-            public int SortNthFrame;
-        }
-
-        internal struct ViewSignature : IEquatable<ViewSignature>
-        {
-            public Matrix4x4 View;
-            public Matrix4x4 Projection;
-            public Matrix4x4 ObjectToWorld;
-            public int ScreenWidth;
-            public int ScreenHeight;
-            public float SplatScale;
-            public float OpacityScale;
-            public int SHOrder;
-            public bool SHOnly;
-            public SmallSplatMode SmallSplatMode;
-            public float SmallSplatThresholdPixels;
-            public int CutoutHash;
-            public int RenderDataVersion;
-
-            public bool Equals(ViewSignature other)
-            {
-                return View.Equals(other.View) &&
-                       Projection.Equals(other.Projection) &&
-                       ObjectToWorld.Equals(other.ObjectToWorld) &&
-                       ScreenWidth == other.ScreenWidth &&
-                       ScreenHeight == other.ScreenHeight &&
-                       SplatScale.Equals(other.SplatScale) &&
-                       OpacityScale.Equals(other.OpacityScale) &&
-                       SHOrder == other.SHOrder &&
-                       SHOnly == other.SHOnly &&
-                       SmallSplatMode == other.SmallSplatMode &&
-                       SmallSplatThresholdPixels.Equals(other.SmallSplatThresholdPixels) &&
-                       CutoutHash == other.CutoutHash &&
-                       RenderDataVersion == other.RenderDataVersion;
-            }
-        }
-
-        internal sealed class CameraRenderResources : IDisposable
-        {
-            internal GraphicsBuffer GpuSortDistances;
-            internal GraphicsBuffer GpuSortKeys;
-            internal GraphicsBuffer GpuView;
-            internal GpuSorting.Args SorterArgs;
-            internal readonly MaterialPropertyBlock DirectMaterialProperties = new();
-            internal CameraSortState SortState;
-            internal ViewSignature ViewSignature;
-            internal bool HasViewSignature;
-            internal bool SortKeysInitialized;
-
-            internal bool EnsureBuffers(GaussianSplat2DRenderer owner)
-            {
-                int count = owner.m_SplatCount;
-                if (count <= 0)
-                    return false;
-                if (GpuView != null && GpuView.count == count)
-                    return true;
-
-                DisposeBuffers();
-                GpuView = new GraphicsBuffer(GraphicsBuffer.Target.Structured, count, kGpuViewDataSize)
-                {
-                    name = "GaussianSplatViewData"
-                };
-                GpuSortDistances = new GraphicsBuffer(GraphicsBuffer.Target.Structured, count, 4)
-                {
-                    name = "GaussianSplatSortDistances"
-                };
-                GpuSortKeys = new GraphicsBuffer(GraphicsBuffer.Target.Structured, count, 4)
-                {
-                    name = "GaussianSplatSortIndices"
-                };
-
-                SorterArgs.inputKeys = GpuSortDistances;
-                SorterArgs.inputValues = GpuSortKeys;
-                SorterArgs.count = (uint)count;
-                if (owner.m_Sorter.Valid)
-                    SorterArgs.resources = GpuSorting.SupportResources.Load((uint)count);
-
-                SortKeysInitialized = false;
-                ResetValidity();
-                return true;
-            }
-
-            internal void ResetValidity()
-            {
-                SortState = default;
-                SortState.LastFrame = int.MinValue;
-                HasViewSignature = false;
-            }
-
-            void DisposeBuffers()
-            {
-                GpuView?.Dispose();
-                GpuSortDistances?.Dispose();
-                GpuSortKeys?.Dispose();
-                SorterArgs.resources.Dispose();
-                GpuView = null;
-                GpuSortDistances = null;
-                GpuSortKeys = null;
-                SorterArgs = default;
-                SortKeysInitialized = false;
-            }
-
-            public void Dispose()
-            {
-                DisposeBuffers();
-            }
-        }
-
-        readonly Dictionary<Camera, CameraRenderResources> m_CameraRenderResources = new();
-        readonly List<Camera> m_DestroyedCameraResources = new();
         GaussianSplat2DAsset m_PrevAsset;
         Hash128 m_PrevHash;
         bool m_Registered;
         bool m_PreviousDirectTransparentPath;
         int m_RenderDataVersion;
-
-        static readonly ProfilerMarker s_ProfSort = new(ProfilerCategory.Render, "Gaussians.2D.Sort", MarkerFlags.SampleGPU);
 
         internal static class Props
         {
@@ -332,8 +209,6 @@ namespace Gaussians.TwoD
             m_Asset.colorData != null;
         public bool HasValidRenderSetup => m_GpuPosData != null && m_GpuOtherData != null && m_GpuChunks != null;
 
-        const int kGpuViewDataSize = 48;
-
         void CreateResourcesForAsset()
         {
             if (!HasValidAsset)
@@ -379,54 +254,6 @@ namespace Gaussians.TwoD
                 0, 4, 1, 4, 5, 1,
                 2, 3, 6, 3, 7, 6
             });
-        }
-
-        CameraRenderResources GetOrCreateCameraRenderResources(Camera cam)
-        {
-            if (cam == null)
-                return null;
-
-            if (!m_CameraRenderResources.TryGetValue(cam, out CameraRenderResources resources))
-            {
-                resources = new CameraRenderResources();
-                m_CameraRenderResources.Add(cam, resources);
-            }
-            return resources;
-        }
-
-        internal CameraRenderResources GetCameraRenderResources(Camera cam)
-        {
-            CameraRenderResources resources = GetOrCreateCameraRenderResources(cam);
-            if (resources == null)
-                return null;
-
-            EnsureSorterAndRegister();
-            return resources.EnsureBuffers(this) ? resources : null;
-        }
-
-        void DisposeCameraRenderResources()
-        {
-            foreach (CameraRenderResources resources in m_CameraRenderResources.Values)
-                resources.Dispose();
-            m_CameraRenderResources.Clear();
-            m_DestroyedCameraResources.Clear();
-        }
-
-        void ReleaseDestroyedCameraRenderResources()
-        {
-            m_DestroyedCameraResources.Clear();
-            foreach (var kvp in m_CameraRenderResources)
-            {
-                if (!kvp.Key)
-                    m_DestroyedCameraResources.Add(kvp.Key);
-            }
-
-            foreach (Camera cam in m_DestroyedCameraResources)
-            {
-                m_CameraRenderResources[cam].Dispose();
-                m_CameraRenderResources.Remove(cam);
-            }
-            m_DestroyedCameraResources.Clear();
         }
 
         bool resourcesAreSetUp => m_ShaderSplats != null && m_ShaderComposite != null && m_ShaderDebugPoints != null &&
@@ -499,7 +326,7 @@ namespace Gaussians.TwoD
 
         public void OnEnable()
         {
-            ResetStereoFrameCaches();
+            InvalidateCameraPreparation();
             m_PreviousDirectTransparentPath = usesDirectTransparentPath;
             if (!resourcesAreSetUp)
                 return;
@@ -533,9 +360,10 @@ namespace Gaussians.TwoD
             cmb.SetComputeIntParam(cs, Props.SplatCount, m_SplatCount);
             cmb.SetComputeIntParam(cs, Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
 
-            UpdateCutoutsBuffer();
-            cmb.SetComputeIntParam(cs, Props.SplatCutoutsCount, m_Cutouts?.Length ?? 0);
-            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatCutouts, m_GpuEditCutouts);
+            m_CutoutBuffer.Refresh(m_Cutouts, transform.localToWorldMatrix);
+            m_CutoutBuffer.EnsureUploaded();
+            cmb.SetComputeIntParam(cs, Props.SplatCutoutsCount, m_CutoutBuffer.Count);
+            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatCutouts, m_CutoutBuffer.Buffer);
         }
 
         internal void SetAssetDataOnMaterial(MaterialPropertyBlock mat)
@@ -556,30 +384,22 @@ namespace Gaussians.TwoD
             mat.SetInteger(Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
         }
 
-        void UpdateDirectMaterialProperties(CameraRenderResources cameraResources)
+        internal void BindViewProperties(MaterialPropertyBlock properties, Camera camera, CameraRenderResources resources)
         {
-            MaterialPropertyBlock properties = cameraResources.DirectMaterialProperties;
-            properties.Clear();
             SetAssetDataOnMaterial(properties);
             properties.SetBuffer(Props.SplatChunks, m_GpuChunks);
-            properties.SetBuffer(Props.SplatViewData, cameraResources.GpuView);
-            properties.SetBuffer(Props.OrderBuffer, cameraResources.GpuSortKeys);
+            properties.SetBuffer(Props.SplatViewData, resources.GpuView);
+            properties.SetBuffer(Props.OrderBuffer, resources.GpuSortKeys);
             properties.SetFloat(Props.SplatScale, m_SplatScale);
             properties.SetFloat(Props.SplatOpacityScale, m_OpacityScale);
             properties.SetInteger(Props.SHOrder, m_SHOrder);
             properties.SetInteger(Props.SHOnly, m_SHOnly ? 1 : 0);
-            properties.SetMatrix(Props.MatrixObjectToWorld, transform.localToWorldMatrix);
         }
 
-        static Bounds TransformBounds(Matrix4x4 matrix, Bounds bounds)
+        void UpdateDirectMaterialProperties(Camera cam, CameraRenderResources resources)
         {
-            Vector3 center = matrix.MultiplyPoint3x4(bounds.center);
-            Vector3 extents = bounds.extents;
-            Vector3 worldExtents = new(
-                Mathf.Abs(matrix.m00) * extents.x + Mathf.Abs(matrix.m01) * extents.y + Mathf.Abs(matrix.m02) * extents.z,
-                Mathf.Abs(matrix.m10) * extents.x + Mathf.Abs(matrix.m11) * extents.y + Mathf.Abs(matrix.m12) * extents.z,
-                Mathf.Abs(matrix.m20) * extents.x + Mathf.Abs(matrix.m21) * extents.y + Mathf.Abs(matrix.m22) * extents.z);
-            return new Bounds(center, worldExtents * 2.0f);
+            resources.DirectMaterialProperties.Clear();
+            BindViewProperties(resources.DirectMaterialProperties, cam, resources);
         }
 
         internal void QueueDirectTransparentDraw(Camera cam)
@@ -593,11 +413,11 @@ namespace Gaussians.TwoD
             if (m_MatSplatsDirect == null || m_DirectQuadMesh == null || cameraResources == null)
                 return;
 
-            UpdateDirectMaterialProperties(cameraResources);
+            UpdateDirectMaterialProperties(cam, cameraResources);
             m_MatSplatsDirect.renderQueue = (int)RenderQueue.Transparent + Mathf.Clamp(m_RenderOrder, -499, 500);
 
             Bounds localBounds = new((asset.boundsMin + asset.boundsMax) * 0.5f, asset.boundsMax - asset.boundsMin);
-            Bounds worldBounds = TransformBounds(transform.localToWorldMatrix, localBounds);
+            Bounds worldBounds = GaussianRenderMath.TransformBounds(transform.localToWorldMatrix, localBounds);
             if (!asset.boundsIncludeSplatExtents)
             {
                 // Assets created before planar-footprint bounds were introduced only contain
@@ -642,7 +462,7 @@ namespace Gaussians.TwoD
             DisposeBuffer(ref m_GpuEditSelected);
             DisposeBuffer(ref m_GpuEditDeleted);
             DisposeBuffer(ref m_GpuEditCountsBounds);
-            DisposeBuffer(ref m_GpuEditCutouts);
+            m_CutoutBuffer.Dispose();
 
             m_SplatCount = 0;
             m_GpuChunksValid = false;
@@ -656,7 +476,7 @@ namespace Gaussians.TwoD
 
         public void OnDisable()
         {
-            ResetStereoFrameCaches();
+            InvalidateCameraPreparation();
             DisposeResourcesForAsset();
             GaussianSplat2DRenderSystem.instance.UnregisterSplat(this);
             m_Registered = false;
@@ -669,224 +489,6 @@ namespace Gaussians.TwoD
             DestroyImmediate(m_DirectQuadMesh);
         }
 
-        static Matrix4x4 AverageMatrices(Matrix4x4 a, Matrix4x4 b)
-        {
-            Matrix4x4 result = default;
-            for (int row = 0; row < 4; ++row)
-            {
-                for (int column = 0; column < 4; ++column)
-                    result[row, column] = (a[row, column] + b[row, column]) * 0.5f;
-            }
-            return result;
-        }
-
-        // Stereo eye views share their orientation in Unity XR. Averaging their view matrices
-        // therefore places the shared sort/preparation camera at the exact eye midpoint while
-        // preserving Unity's camera-space handedness.
-        static Matrix4x4 CalculateCenterEyeView(Matrix4x4 leftView, Matrix4x4 rightView)
-        {
-            return AverageMatrices(leftView, rightView);
-        }
-
-        static Matrix4x4 CalculateCenterEyeProjection(Matrix4x4 leftProjection, Matrix4x4 rightProjection)
-        {
-            return AverageMatrices(leftProjection, rightProjection);
-        }
-
-        static bool GetSharedStereoMatrices(Camera cam, out Matrix4x4 view, out Matrix4x4 projection)
-        {
-            var state = GaussianSplatCameraState.ForCamera(cam);
-            view = state.ViewCount > 1 ? CalculateCenterEyeView(state.View, state.RightView) : state.View;
-            projection = state.ViewCount > 1 ? CalculateCenterEyeProjection(state.Projection, state.RightProjection) : state.Projection;
-            return state.ViewCount > 1;
-        }
-
-        void ResetStereoFrameCaches()
-        {
-            foreach (CameraRenderResources resources in m_CameraRenderResources.Values)
-                resources.ResetValidity();
-        }
-
-        int CalculateCutoutHash(Matrix4x4 rendererMatrix)
-        {
-            unchecked
-            {
-                int hash = 17;
-                int count = m_Cutouts?.Length ?? 0;
-                hash = hash * 31 + count;
-                for (int i = 0; i < count; ++i)
-                {
-                    GaussianCutout.ShaderData data =
-                        GaussianCutout.GetShaderData(m_Cutouts[i], rendererMatrix);
-                    hash = hash * 31 + data.matrix.GetHashCode();
-                    hash = hash * 31 + data.typeAndFlags.GetHashCode();
-                }
-                return hash;
-            }
-        }
-
-        ViewSignature CreateViewSignature(Camera cam)
-        {
-            GetSharedStereoMatrices(cam, out Matrix4x4 view, out Matrix4x4 projection);
-            Matrix4x4 objectToWorld = transform.localToWorldMatrix;
-            var state = GaussianSplatCameraState.ForCamera(cam);
-            return new ViewSignature
-            {
-                View = view,
-                Projection = projection,
-                ObjectToWorld = objectToWorld,
-                ScreenWidth = state.ScreenSize.x,
-                ScreenHeight = state.ScreenSize.y,
-                SplatScale = m_SplatScale,
-                OpacityScale = m_OpacityScale,
-                SHOrder = m_SHOrder,
-                SHOnly = m_SHOnly,
-                SmallSplatMode = m_SmallSplatMode,
-                SmallSplatThresholdPixels = Mathf.Max(0.0f, m_SmallSplatThresholdPixels),
-                CutoutHash = CalculateCutoutHash(objectToWorld),
-                RenderDataVersion = m_RenderDataVersion,
-            };
-        }
-
-        internal bool ShouldSortForCamera(Camera cam, bool backToFront)
-        {
-            return ShouldSortForCameraAtFrame(cam, backToFront, Time.frameCount);
-        }
-
-        bool ShouldSortForCameraAtFrame(Camera cam, bool backToFront, int frame)
-        {
-            CameraRenderResources resources = GetOrCreateCameraRenderResources(cam);
-            if (resources == null)
-                return false;
-
-            GetSharedStereoMatrices(cam, out Matrix4x4 view, out _);
-            Matrix4x4 matrixMV = view * transform.localToWorldMatrix;
-            CameraSortState state = resources.SortState;
-            bool settingsChanged = !state.HasSignature ||
-                                   state.BackToFront != backToFront ||
-                                   state.RenderDataVersion != m_RenderDataVersion ||
-                                   state.SortNthFrame != m_SortNthFrame;
-            bool matrixChanged = !state.HasSignature || !state.MatrixMV.Equals(matrixMV);
-            bool renderedThisFrame = state.HasSignature && state.LastFrame == frame;
-
-            // Single-pass stereo shares a center-eye order. Multipass uses the current
-            // XR pass view, so changed eye matrices trigger a new order in the same frame.
-            // Ordinary movement across frames still honors the configured sort cadence.
-            if (!settingsChanged && !matrixChanged && renderedThisFrame)
-                return false;
-
-            if (settingsChanged)
-                state.RenderCount = 0;
-
-            bool shouldSort = settingsChanged ||
-                              (matrixChanged && renderedThisFrame) ||
-                              state.RenderCount % Mathf.Max(1, m_SortNthFrame) == 0;
-            state.LastFrame = frame;
-            state.RenderCount++;
-            state.BackToFront = backToFront;
-            state.HasSignature = true;
-            state.MatrixMV = matrixMV;
-            state.RenderDataVersion = m_RenderDataVersion;
-            state.SortNthFrame = m_SortNthFrame;
-            resources.SortState = state;
-            return shouldSort;
-        }
-
-        internal bool ShouldPrepareViewForCamera(Camera cam)
-        {
-            CameraRenderResources resources = GetOrCreateCameraRenderResources(cam);
-            if (resources == null)
-                return false;
-
-            ViewSignature signature = CreateViewSignature(cam);
-            if (resources.HasViewSignature && resources.ViewSignature.Equals(signature))
-                return false;
-
-            resources.ViewSignature = signature;
-            resources.HasViewSignature = true;
-            return true;
-        }
-
-        internal void PrepareSplat2DViewData(CommandBuffer cmb, Camera cam, CameraRenderResources cameraResources)
-        {
-            if (cam.cameraType == CameraType.Preview)
-                return;
-
-            var tr = transform;
-
-            GetSharedStereoMatrices(cam, out Matrix4x4 matView, out Matrix4x4 cameraProjection);
-            Matrix4x4 matO2W = tr.localToWorldMatrix;
-            Matrix4x4 matW2O = tr.worldToLocalMatrix;
-            Matrix4x4 matProjection = GL.GetGPUProjectionMatrix(cameraProjection, true);
-            Matrix4x4 matMVP = matProjection * matView * matO2W;
-            var size = GaussianSplatCameraState.ForCamera(cam).ScreenSize;
-            Vector4 screenPar = new Vector4(size.x, size.y, 0, 0);
-            Vector4 camPos = matView.inverse.GetColumn(3);
-
-            // calculate view dependent data for each splat
-            SetAssetDataOnCS(cmb, KernelIndices.PrepareSplat2DViewData, cameraResources);
-
-            cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixMV, matView * matO2W);
-            cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixMVP, matMVP);
-            cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixObjectToWorld, matO2W);
-            cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixWorldToObject, matW2O);
-
-            cmb.SetComputeVectorParam(m_CSSplatUtilities, Props.VecScreenParams, screenPar);
-            cmb.SetComputeVectorParam(m_CSSplatUtilities, Props.VecWorldSpaceCameraPos, camPos);
-            cmb.SetComputeFloatParam(m_CSSplatUtilities, Props.SplatScale, m_SplatScale);
-            cmb.SetComputeFloatParam(m_CSSplatUtilities, Props.SplatOpacityScale, m_OpacityScale);
-            cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SHOrder, m_SHOrder);
-            cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SHOnly, m_SHOnly ? 1 : 0);
-            cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SmallSplatMode, (int)m_SmallSplatMode);
-            cmb.SetComputeFloatParam(m_CSSplatUtilities, Props.SmallSplatThresholdPixels, Mathf.Max(0.0f, m_SmallSplatThresholdPixels));
-
-            m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.PrepareSplat2DViewData, out uint gsX, out _, out _);
-            cmb.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.PrepareSplat2DViewData, (cameraResources.GpuView.count + (int)gsX - 1)/(int)gsX, 1, 1);
-        }
-
-        internal void SortPoints(CommandBuffer cmd, Camera cam, Matrix4x4 matrix, bool backToFront,
-            CameraRenderResources cameraResources)
-        {
-            if (cam.cameraType == CameraType.Preview)
-                return;
-
-            GetSharedStereoMatrices(cam, out Matrix4x4 worldToCamMatrix, out _);
-            worldToCamMatrix.m20 *= -1;
-            worldToCamMatrix.m21 *= -1;
-            worldToCamMatrix.m22 *= -1;
-
-            cmd.BeginSample(s_ProfSort);
-            if (!cameraResources.SortKeysInitialized)
-            {
-                cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.SetIndices, Props.SplatSortKeys,
-                    cameraResources.GpuSortKeys);
-                cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatCount, cameraResources.GpuSortKeys.count);
-                m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.SetIndices, out uint initGroupSize, out _, out _);
-                cmd.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.SetIndices,
-                    (cameraResources.GpuSortKeys.count + (int)initGroupSize - 1) / (int)initGroupSize, 1, 1);
-                cameraResources.SortKeysInitialized = true;
-            }
-
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatSortDistances,
-                cameraResources.GpuSortDistances);
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatSortKeys,
-                cameraResources.GpuSortKeys);
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatChunks, m_GpuChunks);
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatPos, m_GpuPosData);
-            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatFormat, (int)m_Asset.posFormat);
-            cmd.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixMV, worldToCamMatrix * matrix);
-            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatCount, m_SplatCount);
-            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
-            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SortDescending, backToFront ? 1 : 0);
-            m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.CalcDistances, out uint gsX, out _, out _);
-            cmd.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.CalcDistances,
-                (cameraResources.GpuSortDistances.count + (int)gsX - 1)/(int)gsX, 1, 1);
-
-            EnsureSorterAndRegister();
-            m_Sorter.Dispatch(cmd, cameraResources.SorterArgs);
-            cmd.EndSample(s_ProfSort);
-        }
-
         public void Update()
         {
             ReleaseDestroyedCameraRenderResources();
@@ -896,7 +498,7 @@ namespace Gaussians.TwoD
             {
                 // The two paths require opposite sort orders. Force a sort immediately after
                 // switching, even when Sort Nth Frame is greater than one.
-                ResetStereoFrameCaches();
+                InvalidateCameraPreparation();
                 m_PreviousDirectTransparentPath = directTransparentPath;
             }
 
@@ -999,31 +601,6 @@ namespace Gaussians.TwoD
             if (bounds.extents.sqrMagnitude < 0.01)
                 bounds.extents = new Vector3(0.1f,0.1f,0.1f);
             editSelectedBounds = bounds;
-        }
-
-        void UpdateCutoutsBuffer()
-        {
-            int bufferSize = m_Cutouts?.Length ?? 0;
-            if (bufferSize == 0)
-                bufferSize = 1;
-            if (m_GpuEditCutouts == null || m_GpuEditCutouts.count != bufferSize)
-            {
-                m_GpuEditCutouts?.Dispose();
-                m_GpuEditCutouts = new GraphicsBuffer(GraphicsBuffer.Target.Structured, bufferSize, UnsafeUtility.SizeOf<GaussianCutout.ShaderData>()) { name = "GaussianSplat2DCutouts" };
-            }
-
-            NativeArray<GaussianCutout.ShaderData> data = new(bufferSize, Allocator.Temp);
-            if (m_Cutouts != null)
-            {
-                var matrix = transform.localToWorldMatrix;
-                for (var i = 0; i < m_Cutouts.Length; ++i)
-                {
-                    data[i] = GaussianCutout.GetShaderData(m_Cutouts[i], matrix);
-                }
-            }
-
-            m_GpuEditCutouts.SetData(data);
-            data.Dispose();
         }
 
         bool EnsureEditingBuffers()
@@ -1136,7 +713,6 @@ namespace Gaussians.TwoD
             UpdateEditCountsAndBounds();
             editModified = true;
         }
-
 
         public void EditScaleSelection(Vector3 localSpaceCenter, Matrix4x4 localToWorld, Matrix4x4 worldToLocal, Vector3 scale)
         {

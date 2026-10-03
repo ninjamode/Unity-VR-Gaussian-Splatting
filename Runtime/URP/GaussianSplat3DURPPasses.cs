@@ -54,9 +54,10 @@ namespace Gaussians
                 var system = GaussianSplat3DRenderSystem.instance;
                 // Recording/execution may interleave cameras. Capture independent draw
                 // properties now and re-gather this camera before issuing compute work.
-                if (!system.GatherSplatsForCamera(camera.camera))
+                var selection = system.CollectForCamera(camera.camera);
+                if (!selection.HasSplats)
                     return;
-                var draws = system.GatherCompositeDraws(camera.camera, out var composite, ConvertCompositeGammaToLinear);
+                var draws = system.GatherCompositeDraws(selection, out var composite, ConvertCompositeGammaToLinear);
 
                 using (var builder = renderGraph.AddUnsafePass<PrepareData>("Gaussians.3D.Prepare", out var data))
                 {
@@ -71,9 +72,9 @@ namespace Gaussians
                         using var executionScope = pass.CameraState.Apply(pass.Camera);
                         var cmd = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
                         var renderSystem = GaussianSplat3DRenderSystem.instance;
-                        renderSystem.GatherSplatsForCamera(pass.Camera);
-                        renderSystem.PrepareDirectSplats(pass.Camera, cmd);
-                        renderSystem.PrepareCompositeSplats(pass.Camera, cmd);
+                        var selection = renderSystem.CollectForCamera(pass.Camera);
+                        renderSystem.PrepareDirectSplats(selection, cmd);
+                        renderSystem.PrepareCompositeSplats(selection, cmd);
                     });
                 }
 
@@ -127,7 +128,9 @@ namespace Gaussians
                 var camera = frameData.Get<UniversalCameraData>();
                 var cameraState = CaptureCamera(camera);
                 using var cameraScope = cameraState.Apply(camera.camera);
-                var draws = GaussianSplat3DRenderSystem.instance.GatherDepthDraws(camera.camera);
+                var system = GaussianSplat3DRenderSystem.instance;
+                var selection = system.CollectForCamera(camera.camera);
+                var draws = system.GatherDepthDraws(selection);
                 if (draws.Count == 0)
                     return;
 
@@ -147,7 +150,6 @@ namespace Gaussians
 
         GaussianSplat3DRenderPass m_Pass;
         GaussianSplat3DDepthPass m_DepthPass;
-        bool m_HasCamera;
 
         internal void Create()
         {
@@ -166,22 +168,22 @@ namespace Gaussians
         internal void OnCameraPreCull(ScriptableRenderer renderer, in CameraData cameraData)
         {
             using var cameraScope = CaptureCamera(cameraData).Apply(cameraData.camera);
-            m_HasCamera = false;
             var system = GaussianSplat3DRenderSystem.instance;
-            if (!system.GatherSplatsForCamera(cameraData.camera))
+            var selection = system.CollectForCamera(cameraData.camera);
+            if (!selection.HasSplats)
                 return;
 
-            if (system.HasDirectSplats)
-                system.SubmitDirectSplatsForCamera(cameraData.camera);
-
-            m_HasCamera = true;
+            if (selection.HasDirect)
+                system.SubmitDirectSplatsForCamera(selection);
         }
 
         internal void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
         {
             using var cameraScope = CaptureCamera(renderingData.cameraData).Apply(renderingData.cameraData.camera);
-            bool compositeIntermediate = GaussianSplat3DRenderSystem.instance.RequiresCompositeIntermediate;
-            if (!m_HasCamera && !compositeIntermediate)
+            var system = GaussianSplat3DRenderSystem.instance;
+            var selection = system.CollectForCamera(renderingData.cameraData.camera);
+            bool compositeIntermediate = system.RequiresCompositeIntermediate;
+            if (!selection.HasSplats && !compositeIntermediate)
                 return;
             // Intermediate accumulation shares camera depth. Force the camera to
             // use an intermediate too, so mobile XR viewport restrictions cannot
@@ -191,7 +193,7 @@ namespace Gaussians
             m_Pass.ConvertCompositeGammaToLinear = m_ConvertCompositeGammaToLinear;
             m_Pass.requiresIntermediateTexture = compositeIntermediate;
             renderer.EnqueuePass(m_Pass);
-            if (m_HasCamera && GaussianSplat3DRenderSystem.instance.HasDepthSplatsForCamera(renderingData.cameraData.camera))
+            if (selection.HasDepth)
                 renderer.EnqueuePass(m_DepthPass);
         }
 

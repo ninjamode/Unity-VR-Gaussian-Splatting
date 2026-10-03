@@ -29,7 +29,7 @@ namespace Gaussians.ThreeD
             m_Deformation = provider;
             m_SourceFrame = default;
             ++m_RenderDataVersion;
-            ResetStereoFrameCaches();
+            InvalidateCameraPreparation();
         }
 
         internal void PrepareSource()
