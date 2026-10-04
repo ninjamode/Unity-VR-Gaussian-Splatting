@@ -127,6 +127,7 @@ namespace Gaussians.ThreeD.Editor
             if (m_AdvancedExpanded)
             {
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("m_RenderPath"));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_StereoViewMode"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("m_ConvertGammaToLinear"));
                 var depth = serializedObject.FindProperty("m_MinimumSplatDistance");
                 EditorGUILayout.PropertyField(depth, new GUIContent("Minimum View Depth", "Camera-space center depth in world units. Effective minimum is the larger of this value and the rendering camera near plane. Zero uses only the camera near plane."));

@@ -4,3 +4,5 @@ using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Gaussians.FourD.Editor.Tests")]
 [assembly: InternalsVisibleTo("Gaussians.ThreeD.Editor.Tests")]
+
+[assembly: InternalsVisibleTo("Gaussians.Benchmark")]

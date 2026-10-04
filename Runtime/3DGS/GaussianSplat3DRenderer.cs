@@ -30,6 +30,10 @@ namespace Gaussians.ThreeD
             DirectTransparent,
         }
 
+        public enum StereoViewMode { Automatic = 0, PerEye = 1, EyeParallel = 2, SharedSource = 3 }
+        [Tooltip("Experimental two-view compute implementation. Automatic currently uses Per Eye. Mono, one-view XR passes and unsupported kernels use Per Eye.")]
+        public StereoViewMode m_StereoViewMode = StereoViewMode.Automatic;
+
         public GaussianSplat3DAsset m_Asset;
 
         [Tooltip("Composite Texture preserves the original front-to-back offscreen accumulation. Direct Transparent sorts back-to-front and submits premultiplied splats to Unity's transparent queue.")]
@@ -440,9 +444,11 @@ namespace Gaussians.ThreeD
         }
 
         void SetAssetDataOnCS(CommandBuffer cmb, KernelIndices kernel, CameraRenderResources cameraResources = null)
+            => SetAssetDataOnCS(cmb, (int)kernel, cameraResources);
+
+        void SetAssetDataOnCS(CommandBuffer cmb, int kernelIndex, CameraRenderResources cameraResources)
         {
             ComputeShader cs = m_CSSplatUtilities;
-            int kernelIndex = (int) kernel;
             BindSource(cmb, cs, kernelIndex);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatPos, m_GpuPosData);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatChunks, m_GpuChunks);

@@ -43,6 +43,7 @@ namespace Gaussians.Benchmark
         public int repetition, width, height, renderWidth, renderHeight, executionOrder;
         public string phase = "timing";
         public GaussianBenchmarkRenderers.RendererInfo[] renderers;
+        public GaussianBenchmarkRenderers.StereoPreparationInfo[] stereoPreparation;
         public int inputSamples, cpuSamples, gpuSamples;
         public GaussianBenchmarkXrInfo xr;
         public int xrAppGpuSamples, xrCompositorGpuSamples;
@@ -56,7 +57,7 @@ namespace Gaussians.Benchmark
 
     [Serializable] public sealed class GaussianBenchmarkRunInfo
     {
-        public int schemaVersion = 6;
+        public int schemaVersion = 7;
         public string utc, unity, device, cpu, gpu, graphicsApi, pipeline, scene, buildGuid, buildMetadata, mode;
         public bool editor, development;
         public string timingStatus = "Unavailable values have no valid device sample. Timings are whole-frame; source timestamps are not mapped to input sample indices.";

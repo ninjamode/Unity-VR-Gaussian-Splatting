@@ -214,7 +214,7 @@ namespace Gaussians.Benchmark
                 staging.SetActive(true);
                 foreach (var extension in extensions) extension.Begin();
                 yield return null;
-                var readiness = GaussianBenchmarkRenderers.CreateReadinessCheck(selected.subject);
+                var readiness = GaussianBenchmarkRenderers.CreateReadinessCheck(selected.subject, clone.benchmarkCamera);
                 CheckTrial(readiness);
                 trial.camera = JsonUtility.ToJson(GaussianBenchmarkCameraInfo.Capture(clone.benchmarkCamera));
                 trial.renderWidth = clone.benchmarkCamera.scaledPixelWidth; trial.renderHeight = clone.benchmarkCamera.scaledPixelHeight;
@@ -236,6 +236,8 @@ namespace Gaussians.Benchmark
                     Collect(false);
                     CheckTrial(readiness);
                 }
+                trial.stereoPreparation = GaussianBenchmarkRenderers.DescribeStereoPreparation(selected.subject, clone.benchmarkCamera);
+                GaussianBenchmarkRenderers.ResetStereoPreparationCounters(selected.subject, clone.benchmarkCamera);
                 if (entry.diagnostics)
                 {
                     diagnostics = new GaussianBenchmarkDiagnostics(selected.subject, clone.benchmarkCamera, results.DirectoryPath, trial);
@@ -271,6 +273,7 @@ namespace Gaussians.Benchmark
                             throw new InvalidOperationException("No XR application GPU timing samples were returned. Validate timing support in the pilot before running the full suite.");
                     }
                 }
+                trial.stereoPreparation = GaussianBenchmarkRenderers.DescribeStereoPreparation(selected.subject, clone.benchmarkCamera);
                 trial.extensions = string.Join("\n", extensions.Select(e => e.Describe()));
                 trial.status = "complete";
                 results.WriteTrial(trial); trial = null;

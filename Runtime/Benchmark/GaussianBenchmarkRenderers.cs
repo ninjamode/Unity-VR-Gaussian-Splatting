@@ -17,11 +17,18 @@ namespace Gaussians.Benchmark
         public GaussianSplat3DRenderer.SortPrecision value;
     }
 
+    [Serializable] public struct BenchmarkStereoViewMode
+    {
+        public bool apply;
+        public GaussianSplat3DRenderer.StereoViewMode value;
+    }
+
     [Serializable]
     public sealed class GaussianBenchmarkOverrides
     {
         public enum Path { Inherit, CompositeTexture, DirectTransparent }
         public Path renderPath;
+        public BenchmarkStereoViewMode stereoViewMode;
         public BenchmarkInt shOrder = new() { value = 3 };
         public BenchmarkInt sortEveryNthFrame = new() { value = 1 };
         public BenchmarkFloat alphaCutoff = new() { value = 1f / 255 };
@@ -47,6 +54,8 @@ namespace Gaussians.Benchmark
         public static string Validate(GameObject subject, GaussianBenchmarkOverrides settings)
         {
             if (settings == null) return "Settings cannot be null.";
+            if (settings.stereoViewMode.apply && !Enum.IsDefined(typeof(GaussianSplat3DRenderer.StereoViewMode), settings.stereoViewMode.value))
+                return "Unknown stereo view mode.";
             if (settings.projectedFrustumCulling.apply && settings.projectedFrustumCulling.value) return "Projected frustum culling was removed. Update this legacy benchmark variant.";
             if (settings.compactionThreshold.apply && settings.compactionThreshold.value < -1) return "Compaction threshold must be -1 or greater.";
             if (settings.shOrder.apply && (settings.shOrder.value < 0 || settings.shOrder.value > 3)) return "SH order must be 0–3.";
@@ -82,6 +91,7 @@ namespace Gaussians.Benchmark
             }
             foreach (var r in subject.GetComponentsInChildren<GaussianSplat3DRenderer>(true))
             {
+                if (s.stereoViewMode.apply) r.m_StereoViewMode = s.stereoViewMode.value;
                 r.m_OptimizationOverrides = !s.compactionThreshold.apply; // Explicit automatic-policy experiments opt in.
                 if (s.compactionThreshold.apply) r.m_CompactionThreshold = s.compactionThreshold.value;
                 r.m_CompactVisibleSplats = false; r.m_DeferredSHLoading = false;
@@ -108,7 +118,7 @@ namespace Gaussians.Benchmark
         public static string CheckReady(GameObject subject) => CreateReadinessCheck(subject)();
 
         // Cache component discovery before warm-up; the measurement loop must not allocate arrays each frame.
-        public static Func<string> CreateReadinessCheck(GameObject subject)
+        public static Func<string> CreateReadinessCheck(GameObject subject, Camera camera = null)
         {
             var twoD = subject.GetComponentsInChildren<GaussianSplat2DRenderer>();
             var threeD = subject.GetComponentsInChildren<GaussianSplat3DRenderer>();
@@ -120,7 +130,18 @@ namespace Gaussians.Benchmark
                 foreach (var r in twoD)
                     if (r && r.isActiveAndEnabled) { any = true; if (!r.HasValidRenderSetup) return r.name + ": 2D render resources unavailable."; }
                 foreach (var r in threeD)
-                    if (r && r.isActiveAndEnabled) { any = true; if (!r.HasValidRenderSetup) return r.name + ": 3D render resources unavailable."; }
+                    if (r && r.isActiveAndEnabled)
+                    {
+                        any = true;
+                        if (!r.HasValidRenderSetup) return r.name + ": 3D render resources unavailable.";
+                        if (camera && r.m_StereoViewMode != GaussianSplat3DRenderer.StereoViewMode.Automatic)
+                        {
+                            if (!r.TryGetViewPreparationStats(camera, out var stats)) return r.name + ": no stereo preparation recorded for the benchmark camera.";
+                            if (stats.RequestedMode != r.m_StereoViewMode || stats.EffectiveMode != r.m_StereoViewMode ||
+                                (r.m_StereoViewMode != GaussianSplat3DRenderer.StereoViewMode.PerEye && stats.ViewCount != 2) || stats.Fallbacks != 0)
+                                return r.name + ": requested stereo kernel did not run for every preparation. " + stats.FallbackReason;
+                        }
+                    }
                 foreach (var r in other) if (r && r.enabled && r.gameObject.activeInHierarchy) any = true;
                 return any ? null : "Selected subject contains no active enabled renderers.";
             };
@@ -139,6 +160,7 @@ namespace Gaussians.Benchmark
         [Serializable] sealed class RendererSettingsSnapshot
         {
             public int shOrder, sortEveryNthFrame, sortPrecision, compactionThreshold;
+            public string stereoViewMode;
             public bool optimizationOverrides;
             public float alphaCutoff, splatScale, opacityScale;
             public bool writeDepth, opacityAwareBounds, earlyRejection, earlyFrustumCulling, projectedFrustumCulling;
@@ -156,6 +178,7 @@ namespace Gaussians.Benchmark
         static string DescribeSettings(GaussianSplat3DRenderer r) => JsonUtility.ToJson(new RendererSettingsSnapshot
         {
             shOrder = r.m_SHOrder, sortEveryNthFrame = r.m_SortNthFrame,
+            stereoViewMode = r.m_StereoViewMode.ToString(),
             compactionThreshold = r.m_CompactionThreshold, optimizationOverrides = r.m_OptimizationOverrides,
             sortPrecision = (int)r.m_SortPrecision, alphaCutoff = r.m_AlphaCutoff,
             splatScale = r.m_SplatScale, opacityScale = r.m_OpacityScale, writeDepth = r.m_WriteDepth,
@@ -166,6 +189,39 @@ namespace Gaussians.Benchmark
             minimumSplatOpacity = r.m_MinimumSplatOpacity,
             deferredSHLoading = r.m_DeferredSHLoading, compactVisibleSplats = r.m_CompactVisibleSplats
         });
+
+        [Serializable] public sealed class StereoPreparationInfo
+        {
+            public string renderer, requestedMode, effectiveMode, kernel, fallbackReason;
+            public int viewCount, groupSize, lastPreparedFrame;
+            public long preparations, enqueuedDispatches, cacheHits, fallbacks;
+        }
+
+        public static StereoPreparationInfo[] DescribeStereoPreparation(GameObject subject, Camera camera)
+        {
+            var result = new List<StereoPreparationInfo>();
+            foreach (var r in subject.GetComponentsInChildren<GaussianSplat3DRenderer>())
+            {
+                if (!r.enabled) continue;
+                bool available = r.TryGetViewPreparationStats(camera, out var stats);
+                result.Add(new StereoPreparationInfo
+                {
+                    renderer = r.name, requestedMode = r.m_StereoViewMode.ToString(),
+                    effectiveMode = available ? stats.EffectiveMode.ToString() : "unavailable",
+                    kernel = available ? stats.Kernel : "unavailable",
+                    fallbackReason = available ? stats.FallbackReason : "No preparation recorded for this camera",
+                    viewCount = stats.ViewCount, groupSize = stats.GroupSize, lastPreparedFrame = stats.LastFrame,
+                    preparations = stats.Preparations, enqueuedDispatches = stats.Dispatches, cacheHits = stats.CacheHits, fallbacks = stats.Fallbacks
+                });
+            }
+            return result.ToArray();
+        }
+
+        public static void ResetStereoPreparationCounters(GameObject subject, Camera camera)
+        {
+            foreach (var r in subject.GetComponentsInChildren<GaussianSplat3DRenderer>())
+                r.ResetViewPreparationStats(camera);
+        }
 
         public static RendererInfo[] Describe(GameObject subject)
         {

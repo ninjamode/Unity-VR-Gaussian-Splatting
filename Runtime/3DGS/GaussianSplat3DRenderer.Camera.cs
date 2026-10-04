@@ -51,6 +51,7 @@ namespace Gaussians.ThreeD
             public Matrix4x4 Projection;
             public Matrix4x4 RightView, RightProjection;
             public int ViewCount;
+            public StereoViewMode StereoMode;
             public int IndirectInstanceMultiplier;
             public Vector2Int RightScreenSize;
             public bool ConvertColor;
@@ -73,7 +74,7 @@ namespace Gaussians.ThreeD
 
             public bool Equals(ViewSignature other)
             {
-                return EarlyFrustumCulling == other.EarlyFrustumCulling &&
+                return StereoMode == other.StereoMode && EarlyFrustumCulling == other.EarlyFrustumCulling &&
                        OpacityAwareBounds == other.OpacityAwareBounds && AlphaCutoff.Equals(other.AlphaCutoff) &&
                        IndirectInstanceMultiplier == other.IndirectInstanceMultiplier && DeferredSHLoading == other.DeferredSHLoading && MinimumDistance.Equals(other.MinimumDistance) && MinimumOpacity.Equals(other.MinimumOpacity) &&
                        AttributeRevision == other.AttributeRevision && NearClip.Equals(other.NearClip) && RightView.Equals(other.RightView) && RightProjection.Equals(other.RightProjection) &&
@@ -105,6 +106,7 @@ namespace Gaussians.ThreeD
             internal int NextVisibilityProbeFrame, VisibilityGeneration;
             internal int PolicyFrame = -1, PolicyThreshold;
             internal bool PolicyCompaction;
+            internal ViewPreparationStats PreparationStats;
             internal int SortDispatchCount; // Regression-test diagnostic; no GPU readback.
 
 
@@ -271,6 +273,7 @@ namespace Gaussians.ThreeD
                 RightView = state.RightView,
                 RightProjection = state.RightProjection,
                 ViewCount = state.ViewCount,
+                StereoMode = ResolveStereoViewMode(state, false),
                 IndirectInstanceMultiplier = state.IndirectInstanceMultiplier,
                 RightScreenSize = state.RightScreenSize,
                 ConvertColor = effectiveDirectConversion,
@@ -359,7 +362,10 @@ namespace Gaussians.ThreeD
 
             ViewSignature signature = CreateViewSignature(cam, resources);
             if (!(cam == m_BenchmarkCamera && m_BenchmarkCaptureFrame) && resources.HasViewSignature && resources.ViewSignature.Equals(signature))
+            {
+                ++resources.PreparationStats.CacheHits;
                 return false;
+            }
 
             resources.ViewSignature = signature;
             resources.HasViewSignature = true;
@@ -370,8 +376,10 @@ namespace Gaussians.ThreeD
         {
             if (cam.cameraType == CameraType.Preview) return;
             bool diagnostics = cam == m_BenchmarkCamera && m_BenchmarkCaptureFrame && m_BenchmarkCounts != null;
-            int kernel = diagnostics ? m_CSSplatUtilities.FindKernel("CSCalcViewDataDiagnostics") : (int)KernelIndices.CalcViewData;
-            SetAssetDataOnCS(cmb, (KernelIndices)kernel, resources);
+            var state = GaussianSplatCameraState.ForCamera(cam);
+            var mode = ResolveStereoViewMode(state, diagnostics);
+            int kernel = diagnostics ? m_CSSplatUtilities.FindKernel("CSCalcViewDataDiagnostics") : ViewKernel(mode);
+            SetAssetDataOnCS(cmb, kernel, resources);
             if (diagnostics)
             {
                 if (resources.ViewCount != 1) throw new InvalidOperationException("Diagnostics require mono rendering.");
@@ -382,7 +390,6 @@ namespace Gaussians.ThreeD
             var objectToWorld = transform.localToWorldMatrix;
             cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixObjectToWorld, objectToWorld);
             cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixWorldToObject, transform.worldToLocalMatrix);
-            var state = GaussianSplatCameraState.ForCamera(cam);
             cmb.SetComputeIntParam(m_CSSplatUtilities, "_DeferredSHLoading", UseDeferredSH(resources) ? 1 : 0);
             cmb.SetComputeIntParam(m_CSSplatUtilities, "_EarlyFrustumCulling", m_EarlyFrustumCulling ? 1 : 0);
             cmb.SetComputeIntParam(m_CSSplatUtilities, Props.OpacityAwareBounds, m_OpacityAwareBounds ? 1 : 0);
@@ -398,19 +405,98 @@ namespace Gaussians.ThreeD
             cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SHOnly, m_SHOnly ? 1 : 0);
             cmb.SetComputeFloatParam(m_CSSplatUtilities, Props.MinimumSplatRadiusPixels, (m_EarlyRejection ? Mathf.Max(0, m_MinimumSplatRadiusPixels) : 0));
             m_CSSplatUtilities.GetKernelThreadGroupSizes(kernel, out uint groupSize, out _, out _);
-            for (int eye = 0; eye < resources.ViewCount; ++eye)
+            if (mode == StereoViewMode.PerEye)
             {
-                var view = eye == 0 ? state.View : state.RightView;
-                var projection = eye == 0 ? state.Projection : state.RightProjection;
-                var size = eye == 0 ? state.ScreenSize : state.RightScreenSize;
-                cmb.SetComputeVectorParam(m_CSSplatUtilities, Props.VecScreenParams, new Vector4(size.x, size.y, 0, 0));
-                projection = GL.GetGPUProjectionMatrix(projection, true);
-                cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixMV, view * objectToWorld);
-                cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixMVP, projection * view * objectToWorld);
-                cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.ProjectionMatrix, projection);
-                cmb.SetComputeVectorParam(m_CSSplatUtilities, Props.VecWorldSpaceCameraPos, view.inverse.GetColumn(3));
-                cmb.SetComputeIntParam(m_CSSplatUtilities, Props.ViewDataOffset, eye * m_SplatCount);
-                cmb.DispatchCompute(m_CSSplatUtilities, kernel, (m_SplatCount + (int)groupSize - 1) / (int)groupSize, 1, 1);
+                for (int eye = 0; eye < resources.ViewCount; ++eye)
+                {
+                    BindViewEye(cmb, eye == 0 ? state.View : state.RightView,
+                        eye == 0 ? state.Projection : state.RightProjection,
+                        eye == 0 ? state.ScreenSize : state.RightScreenSize, objectToWorld, false);
+                    cmb.SetComputeIntParam(m_CSSplatUtilities, Props.ViewDataOffset, eye * m_SplatCount);
+                    cmb.DispatchCompute(m_CSSplatUtilities, kernel, (m_SplatCount + (int)groupSize - 1) / (int)groupSize, 1, 1);
+                }
+            }
+            else
+            {
+                BindViewEye(cmb, state.View, state.Projection, state.ScreenSize, objectToWorld, false);
+                BindViewEye(cmb, state.RightView, state.RightProjection, state.RightScreenSize, objectToWorld, true);
+                cmb.DispatchCompute(m_CSSplatUtilities, kernel, (m_SplatCount + (int)groupSize - 1) / (int)groupSize,
+                    1, mode == StereoViewMode.EyeParallel ? 2 : 1);
+            }
+            ref var stats = ref resources.PreparationStats;
+            stats.RequestedMode = m_StereoViewMode;
+            stats.EffectiveMode = mode;
+            stats.Kernel = diagnostics ? "CSCalcViewDataDiagnostics" : ViewKernelName(mode);
+            stats.ViewCount = resources.ViewCount;
+            stats.GroupSize = (int)groupSize;
+            stats.LastFrame = Time.frameCount;
+            ++stats.Preparations;
+            stats.Dispatches += mode == StereoViewMode.PerEye ? resources.ViewCount : 1;
+            stats.FallbackReason = m_StereoViewMode == StereoViewMode.Automatic ? "Automatic retains PerEye pending device measurements" :
+                m_StereoViewMode == mode ? "" : diagnostics ? "Mono diagnostics" :
+                state.ViewCount != 2 ? "Pass has one view" : "Stereo kernel unavailable";
+            if (m_StereoViewMode != StereoViewMode.Automatic && m_StereoViewMode != mode) ++stats.Fallbacks;
+        }
+
+        static readonly int s_RightMV = Shader.PropertyToID("_StereoRightMatrixMV");
+        static readonly int s_RightMVP = Shader.PropertyToID("_StereoRightMatrixMVP");
+        static readonly int s_RightProjection = Shader.PropertyToID("_StereoRightProjection");
+        static readonly int s_RightScreen = Shader.PropertyToID("_StereoRightScreen");
+        static readonly int s_RightCamera = Shader.PropertyToID("_StereoRightCamera");
+
+        void BindViewEye(CommandBuffer cmd, Matrix4x4 view, Matrix4x4 projection, Vector2Int size,
+            Matrix4x4 objectToWorld, bool right)
+        {
+            projection = GL.GetGPUProjectionMatrix(projection, true);
+            cmd.SetComputeVectorParam(m_CSSplatUtilities, right ? s_RightScreen : Props.VecScreenParams, new Vector4(size.x, size.y, 0, 0));
+            cmd.SetComputeMatrixParam(m_CSSplatUtilities, right ? s_RightMV : Props.MatrixMV, view * objectToWorld);
+            cmd.SetComputeMatrixParam(m_CSSplatUtilities, right ? s_RightMVP : Props.MatrixMVP, projection * view * objectToWorld);
+            cmd.SetComputeMatrixParam(m_CSSplatUtilities, right ? s_RightProjection : Props.ProjectionMatrix, projection);
+            cmd.SetComputeVectorParam(m_CSSplatUtilities, right ? s_RightCamera : Props.VecWorldSpaceCameraPos, view.inverse.GetColumn(3));
+        }
+
+        ComputeShader m_StereoKernelShader;
+        int m_EyeParallelKernel = -1, m_SharedSourceKernel = -1;
+        internal StereoViewMode ResolveStereoViewMode(in GaussianSplatCameraState state, bool diagnostics)
+        {
+            if (diagnostics || state.ViewCount != 2 ||
+                (m_StereoViewMode != StereoViewMode.EyeParallel && m_StereoViewMode != StereoViewMode.SharedSource))
+                return StereoViewMode.PerEye;
+            if (m_StereoKernelShader != m_CSSplatUtilities)
+            {
+                m_StereoKernelShader = m_CSSplatUtilities;
+                m_EyeParallelKernel = FindViewKernel("CSCalcViewDataStereoEyes");
+                m_SharedSourceKernel = FindViewKernel("CSCalcViewDataStereoShared");
+            }
+            int kernel = ViewKernel(m_StereoViewMode);
+            return kernel >= 0 && m_CSSplatUtilities.IsSupported(kernel) ? m_StereoViewMode : StereoViewMode.PerEye;
+        }
+        int FindViewKernel(string name) => m_CSSplatUtilities && m_CSSplatUtilities.HasKernel(name) ? m_CSSplatUtilities.FindKernel(name) : -1;
+        int ViewKernel(StereoViewMode mode) => mode == StereoViewMode.EyeParallel ? m_EyeParallelKernel :
+            mode == StereoViewMode.SharedSource ? m_SharedSourceKernel : (int)KernelIndices.CalcViewData;
+        static string ViewKernelName(StereoViewMode mode) => mode == StereoViewMode.EyeParallel ? "CSCalcViewDataStereoEyes" :
+            mode == StereoViewMode.SharedSource ? "CSCalcViewDataStereoShared" : "CSCalcViewData";
+
+        // Enqueued work only, not GPU execution timings. Per-camera so other passes cannot replace benchmark evidence.
+        internal struct ViewPreparationStats
+        {
+            public StereoViewMode RequestedMode, EffectiveMode;
+            public string Kernel, FallbackReason;
+            public int ViewCount, GroupSize, LastFrame;
+            public long Preparations, Dispatches, CacheHits, Fallbacks;
+        }
+        internal bool TryGetViewPreparationStats(Camera camera, out ViewPreparationStats stats)
+        {
+            if (camera && m_CameraRenderResources.TryGetValue(camera, out var resources) && resources.PreparationStats.Kernel != null)
+            { stats = resources.PreparationStats; return true; }
+            stats = default; return false;
+        }
+        internal void ResetViewPreparationStats(Camera camera)
+        {
+            if (camera && m_CameraRenderResources.TryGetValue(camera, out var resources))
+            {
+                ref var stats = ref resources.PreparationStats;
+                stats.Preparations = stats.Dispatches = stats.CacheHits = stats.Fallbacks = 0;
             }
         }
 
