@@ -1,6 +1,6 @@
 # Unity Gaussians
 
-Gaussian Splatting for Unity, with a focus on Mixed Reality. Import and render trained 3DGS and 2DGS models, or animate supported 4DGS models through the 3D renderer. Includes single-pass instanced stereo rendering with foveation support.
+Gaussian Splatting for Unity, with a focus on Mixed Reality. Import and render trained 3DGS, 2DGS, and animated 4DGS models.
 
 This adds performance improvements targeting XR, 2DGS and 4DGS support, instanced and foveated rendering, among others. Now distributed as a Unity package that can directly be installed and used.
 
@@ -17,19 +17,19 @@ In the Unity Package Manager, choose **Add package from git URL** and enter:
 https://github.com/ninjamode/Unity-VR-Gaussian-Splatting.git
 ```
 
-For a local checkout, choose **Add package from disk** and select this folder's `package.json`.
 
 ## Quick start
 
 1. Open **Tools → Gaussians → 3D → Create Splat Asset**, select your trained Gaussian file, choose a quality preset and click **Create Asset**.
 2. Add **Gaussians → 3D Splat Renderer** to a GameObject and assign the generated asset.
-3. Configure the render pipeline. For URP, add **Gaussians** to the camera's renderer asset and keep Render Graph enabled. For HDRP, add **Gaussians HDRP Pass** to a Custom Pass Volume at **Before Transparent**. One feature/pass handles 3DGS, 2DGS and 4DGS automatically; no per-type setup is needed.
+3. Configure the render pipeline. For URP, add **Gaussians** to the camera's renderer asset and keep Render Graph enabled. For HDRP, add **Gaussians HDRP Pass** to a Custom Pass Volume at **Before Transparent**. O
 
 Use the [3DGS guide](Documentation~/3DGS.md) for further info. Keep generated data files with their assets.
 
-Both splat renderer inspectors warn when an assigned renderer asset in the active URP pipeline lacks an enabled Gaussian feature, or when no enabled Gaussian HDRP pass is found at Before Transparent in an active loaded-scene volume. HDRP volume coverage and camera settings still determine where a configured pass runs.
 
 ## General
+
+If multiple models are present they are sorted individually by default and do not interact nicely with each other. Add a **GaussiansGroup** component to combine them at some minor overhead.
 
 **Device Support:** Works on desktop as well as Quest 3. Apple Vision Pro should be supported but is untested. Other VR systems should be fine too.
 
@@ -47,16 +47,9 @@ Export your trained checkpoint with the [offline exporter](Tools/4DGS-Exporter/R
 
 Assign `<model>-canonical3d.asset` to a **3D Splat Renderer**, add **4D Gaussian Deformation** to the same GameObject and assign the matching `<model>-inference.asset`. The canonical model can render without inference. See the [4DGS guide](Documentation~/4DGS.md) for import and playback.
 
-## Pipeline integration
-
-Use one **Gaussians** URP feature or **Gaussians HDRP Pass** for all splat types.
-
-The unified integration skips unused paths. Composite groups render **2DGS, then 3DGS**; each retains its own shaders and color conversion. This does not add global sorting between models or between 2DGS and 3DGS. HDRP accumulation textures are allocated on first use and released when the pass is cleaned up.
-
 ## Limitations
 
 - WebGL and OpenGL graphics APIs are not supported.
-- Models are sorted individually. Overlapping renderer objects do not share a global per-splat order.
 - Lower sort precision and size/opacity pruning trade visual quality for reduced work. Check output on the intended device and pipeline.
 - Selection editing can be flaky.
 

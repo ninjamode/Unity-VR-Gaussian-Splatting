@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // View-only kernels. Source formats, output layout and sorting remain unchanged.
+uint _ViewDataBase, _ViewDataStride;
 struct SplatEyeParameters
 {
     float4x4 matrixMV, matrixMVP, projection;
@@ -187,7 +188,7 @@ void CSCalcViewDataStereoShared(uint3 id : SV_DispatchThreadID)
 {
     uint idx = id.x;
     if (idx >= _SplatCount) return;
-#define REJECT_STEREO { _SplatViewData[idx] = (SplatViewData)0; _SplatViewData[_SplatCount + idx] = (SplatViewData)0; return; }
+#define REJECT_STEREO { _SplatViewData[_ViewDataBase + idx] = (SplatViewData)0; _SplatViewData[_ViewDataBase + _ViewDataStride + idx] = (SplatViewData)0; return; }
     bool selected = false;
     if (_SplatBitsValid)
     {
@@ -226,8 +227,8 @@ void CSCalcViewDataStereoShared(uint3 id : SV_DispatchThreadID)
             if (shadeRight) ShadeStereoEye(splat.sh, centerWorldPos, effectiveOpacity, right, rightView);
         }
     }
-    _SplatViewData[idx] = leftView;
-    _SplatViewData[_SplatCount + idx] = rightView;
+    _SplatViewData[_ViewDataBase + idx] = leftView;
+    _SplatViewData[_ViewDataBase + _ViewDataStride + idx] = rightView;
 #undef REJECT_STEREO
 }
 
@@ -239,5 +240,5 @@ void CSCalcViewDataDiagnostics(uint3 id : SV_DispatchThreadID)
 { CalculateViewDataForEye(id.x, GetSplatEye(0), _ViewDataOffset); }
 [numthreads(GROUP_SIZE,1,1)]
 void CSCalcViewDataStereoEyes(uint3 id : SV_DispatchThreadID)
-{ CalculateViewDataForEye(id.x, GetSplatEye(id.z), id.z * _SplatCount); }
+{ CalculateViewDataForEye(id.x, GetSplatEye(id.z), _ViewDataBase + id.z * _ViewDataStride); }
 #undef BENCHMARK_COUNT

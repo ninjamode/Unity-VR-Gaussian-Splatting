@@ -46,6 +46,8 @@
 // Append kernels: existing runtime/editing kernel ordinals must remain stable.
 #pragma kernel CSCalcViewDataStereoEyes
 #pragma kernel CSCalcViewDataStereoShared
+#pragma kernel CSGroupKeys
+#pragma kernel CSGroupScatter
 
 // GPU sorting needs wave ops
 #pragma require wavebasic
@@ -720,7 +722,7 @@ uint IsVisibleSplat(uint idx)
     if (idx >= _SplatCount) return 0;
     // Stereo uses a union: a splat needed by either eye must survive.
     for (uint eye = 0; eye < _CompactViewCount; ++eye)
-        if (_SplatViewData[eye * _SplatCount + idx].pos.w > 0) return 1;
+        if (_SplatViewData[eye * _ViewDataStride + idx].pos.w > 0) return 1;
     return 0;
 }
 
@@ -766,4 +768,29 @@ void CSCompactVisible(uint3 id : SV_DispatchThreadID, uint3 tid : SV_GroupThread
     uint key = FloatToSortableUint(mul(_MatrixMV, float4(pos, 1)).z);
     _SplatSortDistances[outputIdx] = _SortDescending != 0 ? ~key : key;
     _SplatSortKeys[outputIdx] = id.x;
+}
+
+// A member writes source-dependent keys and selection once, without copying source assets.
+RWStructuredBuffer<uint> _GroupDepths;
+RWStructuredBuffer<uint> _GroupSelection;
+uint _GroupBase;
+[numthreads(256,1,1)]
+void CSGroupKeys(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _SplatCount) return;
+    uint key = FloatToSortableUint(mul(_MatrixMV, float4(LoadSplatPos(id.x), 1)).z);
+    _GroupDepths[_GroupBase + id.x] = _SortDescending != 0 ? ~key : key;
+    _GroupSelection[_GroupBase + id.x] = _SplatBitsValid != 0 &&
+        (_SplatSelectedBits.Load((id.x / 32) * 4) & (1u << (id.x & 31))) != 0 ? 1 : 0;
+}
+uint _GroupCompact;
+[numthreads(256,1,1)]
+void CSGroupScatter(uint3 id : SV_DispatchThreadID, uint3 tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
+{
+    uint keep = _GroupCompact != 0 ? IsVisibleSplat(id.x) : (id.x < _SplatCount ? 1 : 0);
+    uint prefix = VisiblePrefix(tid.x, keep);
+    if (keep == 0) return;
+    uint dst = _GroupCompact != 0 ? _CompactGroups[gid.x] + prefix - 1 : id.x;
+    _SplatSortDistances[dst] = _GroupDepths[id.x];
+    _SplatSortKeys[dst] = id.x;
 }

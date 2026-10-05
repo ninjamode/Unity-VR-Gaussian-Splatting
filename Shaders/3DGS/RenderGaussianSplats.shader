@@ -18,7 +18,11 @@ Shader "Gaussians/3D/Render Splats"
 
         StructuredBuffer<uint> _OrderBuffer;
         StructuredBuffer<SplatViewData> _SplatViewData;
+        #if defined(GAUSSIANS_GROUPED)
+        StructuredBuffer<uint> _GroupSelection;
+        #else
         ByteAddressBuffer _SplatSelectedBits;
+        #endif
         uint _SplatBitsValid;
         uint _SplatCount;
         uint _SplatViewCount;
@@ -73,7 +77,11 @@ Shader "Gaussians/3D/Render Splats"
                           f16tof32(view.color.y >> 16), f16tof32(view.color.y));
             if (_ConvertGammaToLinear != 0u)
                 o.col.rgb = GammaToLinearSpace(o.col.rgb);
+            #if defined(GAUSSIANS_GROUPED)
+            if (_GroupSelection[index] != 0u)
+        #else
             if (_SplatBitsValid != 0u && (_SplatSelectedBits.Load((index / 32u) * 4u) & (1u << (index & 31u))) != 0u)
+        #endif
                 o.col.a = -1;
             float halfExtent = SplatQuadHalfExtent(o.col.a, _AlphaCutoff, _OpacityAwareBounds);
             if (halfExtent <= 0.0)
@@ -160,6 +168,7 @@ Shader "Gaussians/3D/Render Splats"
             #pragma require compute
             #pragma multi_compile_instancing
             #pragma multi_compile_local __ GAUSSIANS_DIRECT_TRANSPARENT
+            #pragma multi_compile_local __ GAUSSIANS_GROUPED
             ENDCG
         }
         Pass
@@ -173,6 +182,7 @@ Shader "Gaussians/3D/Render Splats"
             #pragma require compute
             #pragma multi_compile_instancing
             #pragma multi_compile_local __ GAUSSIANS_DIRECT_TRANSPARENT
+            #pragma multi_compile_local __ GAUSSIANS_GROUPED
             ENDCG
         }
     }

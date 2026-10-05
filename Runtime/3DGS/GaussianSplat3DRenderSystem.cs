@@ -83,8 +83,9 @@ namespace Gaussians.ThreeD
         {
             internal readonly Camera Camera;
             internal readonly List<GaussianSplat3DRenderer> Renderers = new();
+            internal readonly List<GaussiansGroup.CameraResources> Groups = new();
             internal bool HasDirect, HasComposite, HasDepth;
-            internal bool HasSplats => Renderers.Count != 0;
+            internal bool HasSplats => Renderers.Count != 0 || Groups.Count != 0;
 
             internal CameraSelection(Camera camera) => Camera = camera;
         }
@@ -105,14 +106,30 @@ namespace Gaussians.ThreeD
                     selection.HasDirect = true;
                 else
                     selection.HasComposite = true;
-                selection.HasDepth |= gs.m_WriteDepth && gs.m_RenderMode == GaussianSplat3DRenderer.RenderMode.Splats;
+                selection.HasDepth |= gs.EffectiveWriteDepth && gs.EffectiveRenderMode == GaussianSplat3DRenderer.RenderMode.Splats;
+            }
+
+            var groups = new Dictionary<GaussiansGroup, List<GaussianSplat3DRenderer>>();
+            foreach (var renderer in selection.Renderers)
+            {
+                var group = renderer.ActiveGroup;
+                if (!group) continue;
+                if (!groups.TryGetValue(group, out var members)) groups.Add(group, members = new());
+                members.Add(renderer);
+            }
+            foreach (var entry in groups)
+            {
+                var resource = entry.Key.Collect(cam, entry.Value);
+                // An active group never silently turns into independent submissions.
+                if (resource != null) selection.Groups.Add(resource);
+                foreach (var member in entry.Value) selection.Renderers.Remove(member);
             }
 
             var camTr = cam.transform;
             selection.Renderers.Sort((a, b) =>
             {
-                var orderA = a.m_RenderOrder;
-                var orderB = b.m_RenderOrder;
+                var orderA = a.EffectiveRenderOrder;
+                var orderB = b.EffectiveRenderOrder;
                 if (orderA != orderB)
                     return orderB.CompareTo(orderA);
                 var posA = camTr.InverseTransformPoint(a.transform.position);
@@ -127,6 +144,7 @@ namespace Gaussians.ThreeD
             foreach (var gs in selection.Renderers)
                 if (gs.usesDirectTransparentPath)
                     gs.QueueDirectTransparentDraw(selection.Camera);
+            foreach (var group in selection.Groups) if (group.Direct) GaussiansGroup.Submit(group);
         }
 
         // ReSharper disable once MemberCanBePrivate.Global - used by HDRP/URP features that are not always compiled
@@ -148,6 +166,7 @@ namespace Gaussians.ThreeD
 
         internal void PrepareCompositeSplats(CameraSelection selection, CommandBuffer cmb)
         {
+            foreach (var group in selection.Groups) if (!group.Direct) GaussiansGroup.Prepare(group, cmb);
             foreach (var gs in selection.Renderers)
             {
                 if (gs.usesDirectTransparentPath)
@@ -175,7 +194,7 @@ namespace Gaussians.ThreeD
                     continue;
 
                 var matrix = gs.transform.localToWorldMatrix;
-                Material displayMat = gs.m_RenderMode switch
+                Material displayMat = gs.EffectiveRenderMode switch
                 {
                     GaussianSplat3DRenderer.RenderMode.DebugPoints => gs.m_MatDebugPoints,
                     GaussianSplat3DRenderer.RenderMode.DebugPointIndices => gs.m_MatDebugPoints,
@@ -188,23 +207,28 @@ namespace Gaussians.ThreeD
 
                 gs.BindViewProperties(mpb, cam, cameraResources);
                 mpb.SetFloat(GaussianSplat3DRenderer.Props.SplatSize, gs.m_PointDisplaySize);
-                mpb.SetInteger(GaussianSplat3DRenderer.Props.DisplayIndex, gs.m_RenderMode == GaussianSplat3DRenderer.RenderMode.DebugPointIndices ? 1 : 0);
-                mpb.SetInteger(GaussianSplat3DRenderer.Props.DisplayChunks, gs.m_RenderMode == GaussianSplat3DRenderer.RenderMode.DebugChunkBounds ? 1 : 0);
+                mpb.SetInteger(GaussianSplat3DRenderer.Props.DisplayIndex, gs.EffectiveRenderMode == GaussianSplat3DRenderer.RenderMode.DebugPointIndices ? 1 : 0);
+                mpb.SetInteger(GaussianSplat3DRenderer.Props.DisplayChunks, gs.EffectiveRenderMode == GaussianSplat3DRenderer.RenderMode.DebugChunkBounds ? 1 : 0);
 
                 int indexCount = 6;
                 int instanceCount = gs.splatCount;
-                if (gs.m_RenderMode is GaussianSplat3DRenderer.RenderMode.DebugBoxes or GaussianSplat3DRenderer.RenderMode.DebugChunkBounds)
+                if (gs.EffectiveRenderMode is GaussianSplat3DRenderer.RenderMode.DebugBoxes or GaussianSplat3DRenderer.RenderMode.DebugChunkBounds)
                     indexCount = 36;
-                if (gs.m_RenderMode == GaussianSplat3DRenderer.RenderMode.DebugChunkBounds)
+                if (gs.EffectiveRenderMode == GaussianSplat3DRenderer.RenderMode.DebugChunkBounds)
                     instanceCount = gs.m_GpuChunksValid ? gs.m_GpuChunks.count : 0;
 
                 draws.Add(new SplatDraw
                 {
+                    RenderOrder = gs.EffectiveRenderOrder, SortPosition = gs.transform.position,
                     Indices = gs.m_GpuIndexBuffer, Matrix = matrix, Material = displayMat,
                     Properties = mpb, IndexCount = indexCount, Count = instanceCount,
                     IndirectArgs = gs.GetIndirectArgs(cameraResources),
                 });
             }
+            foreach (var group in selection.Groups)
+                if (!group.Direct) { draws.Add(GaussiansGroup.Draw(group)); matComposite = group.Leader.GetCompositeMaterial(convertComposite); }
+            draws.Sort((a, b) => a.RenderOrder != b.RenderOrder ? b.RenderOrder.CompareTo(a.RenderOrder) :
+                cam.transform.InverseTransformPoint(a.SortPosition).z.CompareTo(cam.transform.InverseTransformPoint(b.SortPosition).z));
             return draws;
         }
 
@@ -213,6 +237,7 @@ namespace Gaussians.ThreeD
         // Unity reaches its normal transparent rendering phase.
         public void PrepareDirectSplats(CameraSelection selection, CommandBuffer cmb)
         {
+            foreach (var group in selection.Groups) if (group.Direct) GaussiansGroup.Prepare(group, cmb);
             foreach (var gs in selection.Renderers)
             {
                 if (!gs.usesDirectTransparentPath)
@@ -230,6 +255,8 @@ namespace Gaussians.ThreeD
             internal Matrix4x4 Matrix;
             internal Material Material;
             internal MaterialPropertyBlock Properties;
+            internal int RenderOrder;
+            internal Vector3 SortPosition;
             internal int IndexCount = 6;
             internal int Count;
         }
@@ -242,7 +269,7 @@ namespace Gaussians.ThreeD
             var draws = new List<SplatDraw>();
             foreach (var gs in selection.Renderers)
             {
-                if (!gs.m_WriteDepth || gs.m_RenderMode != GaussianSplat3DRenderer.RenderMode.Splats)
+                if (!gs.EffectiveWriteDepth || gs.EffectiveRenderMode != GaussianSplat3DRenderer.RenderMode.Splats)
                     continue;
 
                 var resources = gs.GetCameraRenderResources(camera);
@@ -261,6 +288,8 @@ namespace Gaussians.ThreeD
                     IndirectArgs = gs.GetIndirectArgs(resources),
                 });
             }
+            foreach (var group in selection.Groups)
+                if (group.WriteDepth) draws.Add(GaussiansGroup.DepthDraw(group));
             return draws;
         }
 

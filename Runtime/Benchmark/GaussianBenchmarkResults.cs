@@ -57,7 +57,7 @@ namespace Gaussians.Benchmark
 
     [Serializable] public sealed class GaussianBenchmarkRunInfo
     {
-        public int schemaVersion = 7;
+        public int schemaVersion = 8;
         public string utc, unity, device, cpu, gpu, graphicsApi, pipeline, scene, buildGuid, buildMetadata, mode;
         public bool editor, development;
         public string timingStatus = "Unavailable values have no valid device sample. Timings are whole-frame; source timestamps are not mapped to input sample indices.";

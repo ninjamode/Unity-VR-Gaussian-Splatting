@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Gaussians.ThreeD;
 using Unity.Collections.LowLevel.Unsafe;
@@ -39,6 +40,8 @@ namespace Gaussians.ThreeD.Editor
 
         bool m_ResourcesExpanded = false;
         bool m_AdvancedExpanded;
+        bool m_CutoutsExpanded;
+        bool m_EditingExpanded;
         int m_CameraIndex = 0;
 
         bool m_ExportBakeTransform;
@@ -94,6 +97,17 @@ namespace Gaussians.ThreeD.Editor
 
             serializedObject.Update();
             Gaussians.Core.Editor.GaussianPipelineWarnings.Draw(is2D: false);
+            var activeGroups = targets.Cast<GaussianSplat3DRenderer>().Select(r => r.group && r.group.isActiveAndEnabled ? r.group : null).ToArray();
+            bool groupControlled = activeGroups.Any(g => g);
+            bool allGroupControlled = activeGroups.All(g => g);
+            using var groupSettings = allGroupControlled ? new SerializedObject(activeGroups.Distinct().Cast<UnityEngine.Object>().ToArray()) : null;
+            SerializedProperty SharedProperty(string name) => (groupSettings ?? serializedObject).FindProperty(name);
+            void SharedField(string name, GUIContent label = null)
+            {
+                using (new EditorGUI.DisabledScope(groupControlled))
+                    EditorGUILayout.PropertyField(SharedProperty(name), label ?? new GUIContent(ObjectNames.NicifyVariableName(name)));
+            }
+
 
             GUILayout.Label("Data Asset", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(m_PropAsset);
@@ -108,27 +122,34 @@ namespace Gaussians.ThreeD.Editor
 
             EditorGUILayout.Space();
             GUILayout.Label("Render Options", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_WriteDepth"), new GUIContent("Write Depth (URP Only)", "Adds a draw writing approximate splat-center depth after transparent color."));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_AlphaCutoff"), new GUIContent("Alpha Cutoff", "Minimum fragment opacity retained. Also skips splats whose peak cannot reach this value. Higher values remove faint contributions and shrink bounds."));
+            if (groupControlled)
+                EditorGUILayout.HelpBox(allGroupControlled ? "Disabled fields are controlled by the group. Member settings are retained for independent rendering when the group is disabled." : "Some selected renderers use group overrides. Select a renderer individually to inspect its effective shared settings.", MessageType.Info);
+            SharedField("m_WriteDepth", new GUIContent("Write Depth (URP Only)"));
+            SharedField("m_AlphaCutoff", new GUIContent("Alpha Cutoff"));
+            SharedField("m_OpacityAwareBounds", new GUIContent("Opacity Aware Bounds"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_MinimumSplatRadiusPixels"), new GUIContent("Minimum Splat Radius (px)", "Projected three-sigma radius before footprint filtering, in render-target pixels. Zero disables size pruning. Higher values can remove detail; 0.7 is a provisional safeguard for tiny models."));
-            var threshold = serializedObject.FindProperty("m_CompactionThreshold");
-            EditorGUILayout.PropertyField(threshold, new GUIContent("Compaction Threshold", "Rejected splats required to enable compaction and deferred SH. -1: off; 0: always on; positive: automatic using recent visibility. Default 100,000 is experimental."));
-            if (!threshold.hasMultipleDifferentValues) threshold.intValue = Math.Max(-1, threshold.intValue);
-            var precision = serializedObject.FindProperty("m_SortPrecision");
-            EditorGUI.showMixedValue = precision.hasMultipleDifferentValues;
-            EditorGUI.BeginChangeCheck();
-            bool lowPrecision = EditorGUILayout.Toggle(new GUIContent("16-bit Sorting (Experimental)", "Can reduce sorting cost in large environments, but may cause ordering artifacts and can reduce performance in some scenes."), precision.intValue == 16);
-            if (EditorGUI.EndChangeCheck()) precision.intValue = lowPrecision ? 16 : 32;
-            EditorGUI.showMixedValue = false;
-            EditorGUILayout.PropertyField(m_PropSortNthFrame);
+            var threshold = SharedProperty("m_CompactionThreshold");
+            using (new EditorGUI.DisabledScope(groupControlled))
+                EditorGUILayout.PropertyField(threshold, new GUIContent("Compaction Threshold", "Rejected splats required to enable compaction and deferred SH. -1: off; 0: always on; positive: automatic using recent visibility. Default 100,000 is experimental."));
+            if (!groupControlled && !threshold.hasMultipleDifferentValues) threshold.intValue = Math.Max(-1, threshold.intValue);
+            var precision = SharedProperty("m_SortPrecision");
+            using (new EditorGUI.DisabledScope(groupControlled))
+            {
+                EditorGUI.showMixedValue = precision.hasMultipleDifferentValues;
+                EditorGUI.BeginChangeCheck();
+                bool lowPrecision = EditorGUILayout.Toggle(new GUIContent("16-bit Sorting (Experimental)", "Can reduce sorting cost in large environments, but may cause ordering artifacts and can reduce performance in some scenes."), precision.intValue == 16);
+                if (EditorGUI.EndChangeCheck()) precision.intValue = lowPrecision ? 16 : 32;
+                EditorGUI.showMixedValue = false;
+            }
+            SharedField("m_SortNthFrame");
 
             EditorGUILayout.Space();
             m_AdvancedExpanded = EditorGUILayout.Foldout(m_AdvancedExpanded, "Advanced Options", true, EditorStyles.foldoutHeader);
             if (m_AdvancedExpanded)
             {
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_RenderPath"));
+                SharedField("m_RenderPath");
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("m_StereoViewMode"));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_ConvertGammaToLinear"));
+                SharedField("m_ConvertGammaToLinear");
                 var depth = serializedObject.FindProperty("m_MinimumSplatDistance");
                 EditorGUILayout.PropertyField(depth, new GUIContent("Minimum View Depth", "Camera-space center depth in world units. Effective minimum is the larger of this value and the rendering camera near plane. Zero uses only the camera near plane."));
                 if (!depth.hasMultipleDifferentValues)
@@ -137,45 +158,73 @@ namespace Gaussians.ThreeD.Editor
                     if (camera && camera.isActiveAndEnabled && (camera.cullingMask & (1 << gs.gameObject.layer)) != 0 && camera.nearClipPlane > depth.floatValue)
                         EditorGUILayout.HelpBox($"Main camera '{camera.name}' has a near plane of {camera.nearClipPlane:g} and will clip farther than this setting. Each camera uses its own near plane.", MessageType.Info);
                 }
-                EditorGUILayout.PropertyField(m_PropRenderOrder);
+                SharedField("m_RenderOrder");
                 EditorGUILayout.PropertyField(m_PropSplatScale);
                 EditorGUILayout.PropertyField(m_PropOpacityScale);
                 EditorGUILayout.PropertyField(m_PropSHOrder);
                 EditorGUILayout.PropertyField(m_PropSHOnly);
-                EditorGUILayout.PropertyField(m_PropRenderMode);
-                if (m_PropRenderMode.intValue is (int)GaussianSplat3DRenderer.RenderMode.DebugPoints or (int)GaussianSplat3DRenderer.RenderMode.DebugPointIndices)
+                if (groupControlled)
+                {
+                    using (new EditorGUI.DisabledScope(true))
+                        EditorGUILayout.EnumPopup("Render Mode (Group)", GaussianSplat3DRenderer.RenderMode.Splats);
+                }
+                else EditorGUILayout.PropertyField(m_PropRenderMode);
+                if (!groupControlled && (m_PropRenderMode.intValue is (int)GaussianSplat3DRenderer.RenderMode.DebugPoints or (int)GaussianSplat3DRenderer.RenderMode.DebugPointIndices))
                     EditorGUILayout.PropertyField(m_PropPointDisplaySize);
+            }
+
+            bool validAndEnabled = gs.isActiveAndEnabled && gs.HasValidAsset && gs.HasValidRenderSetup;
+            bool canEdit = validAndEnabled && Array.TrueForAll(targets, item => ((GaussianSplat3DRenderer)item).CanEditSplats);
+
+            EditorGUILayout.Space();
+            m_CutoutsExpanded = EditorGUILayout.Foldout(m_CutoutsExpanded, "Cutouts", true, EditorStyles.foldoutHeader);
+            if (m_CutoutsExpanded)
+            {
+                int additionalCutouts = AdditionalGroupCutoutCount(gs);
+                if (additionalCutouts > 0 && targets.Length == 1)
+                    EditorGUILayout.HelpBox($"Group '{gs.group.name}' supplies {additionalCutouts} additional active cutout(s).", MessageType.Info);
+                EditorGUILayout.PropertyField(m_PropCutouts, true);
+                if (validAndEnabled && targets.Length == 1)
+                    CutoutGUI(gs);
+            }
+
+            EditorGUILayout.Space();
+            m_EditingExpanded = EditorGUILayout.Foldout(m_EditingExpanded, "Editing", true, EditorStyles.foldoutHeader);
+            if (m_EditingExpanded)
+            {
+                if (!Array.TrueForAll(targets, item => ((GaussianSplat3DRenderer)item).CanEditSplats))
+                    EditorGUILayout.HelpBox("Canonical models have stable Gaussian IDs. Per-Gaussian editing and merging are unavailable; transforms and cutouts remain supported.", MessageType.Info);
+                if (canEdit && targets.Length == 1)
+                {
+                    EditCameras(gs);
+                    EditGUI(gs);
+                }
+                if (canEdit && targets.Length > 1)
+                    MultiEditGUI();
             }
 
             EditorGUILayout.Space();
             m_ResourcesExpanded = EditorGUILayout.Foldout(m_ResourcesExpanded, "Resources", true, EditorStyles.foldoutHeader);
             if (m_ResourcesExpanded)
             {
-                EditorGUILayout.PropertyField(m_PropShaderSplats);
-                EditorGUILayout.PropertyField(m_PropShaderComposite);
+                SharedField("m_ShaderSplats");
+                SharedField("m_ShaderComposite");
                 EditorGUILayout.PropertyField(m_PropShaderDebugPoints);
                 EditorGUILayout.PropertyField(m_PropShaderDebugBoxes);
-                EditorGUILayout.PropertyField(m_PropCSSplatUtilities);
+                SharedField("m_CSSplatUtilities");
             }
-            bool validAndEnabled = gs && gs.enabled && gs.gameObject.activeInHierarchy && gs.HasValidAsset;
-            if (validAndEnabled && !gs.HasValidRenderSetup)
-            {
+            if (gs.isActiveAndEnabled && gs.HasValidAsset && !gs.HasValidRenderSetup)
                 EditorGUILayout.HelpBox("Shader resources are not set up", MessageType.Error);
-                validAndEnabled = false;
-            }
 
-            if (!gs.CanEditSplats) EditorGUILayout.PropertyField(m_PropCutouts, true);
-            if (validAndEnabled && !gs.CanEditSplats)
-                EditorGUILayout.HelpBox("This canonical model has stable Gaussian IDs. Per-Gaussian editing and merging are unavailable; transforms and cutouts remain supported.", MessageType.Info);
-            validAndEnabled &= Array.TrueForAll(targets, item => ((GaussianSplat3DRenderer)item).CanEditSplats);
-            if (validAndEnabled && targets.Length == 1)
+            DrawSeparator();
+            DrawGroupInformation(gs);
+            if (targets.Length == 1)
+                DrawSplatInformation(gs, canEdit);
+            else
             {
-                EditCameras(gs);
-                EditGUI(gs);
-            }
-            if (validAndEnabled && targets.Length > 1)
-            {
-                MultiEditGUI();
+                CountTargetSplats(out var totalSplats, out var totalObjects);
+                EditorGUILayout.LabelField("Total Objects", $"{totalObjects}");
+                EditorGUILayout.LabelField("Total Splats", $"{totalSplats:N0}");
             }
 
             serializedObject.ApplyModifiedProperties();
@@ -203,8 +252,6 @@ namespace Gaussians.ThreeD.Editor
         {
             DrawSeparator();
             CountTargetSplats(out var totalSplats, out var totalObjects);
-            EditorGUILayout.LabelField("Total Objects", $"{totalObjects}");
-            EditorGUILayout.LabelField("Total Splats", $"{totalSplats:N0}");
             if (totalSplats > GaussianSplat3DAsset.kMaxSplats)
             {
                 EditorGUILayout.HelpBox($"Can't merge, too many splats (max. supported {GaussianSplat3DAsset.kMaxSplats:N0})", MessageType.Warning);
@@ -269,9 +316,6 @@ namespace Gaussians.ThreeD.Editor
 
         void EditGUI(GaussianSplat3DRenderer gs)
         {
-            ++s_EditStatsUpdateCounter;
-
-            DrawSeparator();
             bool wasToolActive = ToolManager.activeContextType == typeof(GaussianSplat3DToolContext);
             GUILayout.BeginHorizontal();
             bool isToolActive = GUILayout.Toggle(wasToolActive, "Edit", EditorStyles.miniButton);
@@ -307,6 +351,31 @@ namespace Gaussians.ThreeD.Editor
                 EditorGUILayout.HelpBox("Splat move/rotate/scale tools need Very High splat quality preset", MessageType.Warning);
             }
 
+            var asset = gs.asset;
+            EditorGUILayout.Space();
+            EditorGUI.BeginChangeCheck();
+            m_ExportBakeTransform = EditorGUILayout.Toggle("Export in world space", m_ExportBakeTransform);
+            if (EditorGUI.EndChangeCheck())
+            {
+                EditorPrefs.SetBool(kPrefExportBake, m_ExportBakeTransform);
+            }
+
+            if (GUILayout.Button("Export PLY"))
+                ExportPlyFile(gs, m_ExportBakeTransform);
+            if (asset.posFormat > GaussianSplat3DAsset.VectorFormat.Norm16 ||
+                asset.scaleFormat > GaussianSplat3DAsset.VectorFormat.Norm16 ||
+                asset.colorFormat > GaussianSplat3DAsset.ColorFormat.Float16x4 ||
+                asset.shFormat > GaussianSplat3DAsset.SHFormat.Float16)
+            {
+                EditorGUILayout.HelpBox(
+                    "It is recommended to use High or VeryHigh quality preset for editing splats, lower levels are lossy",
+                    MessageType.Warning);
+            }
+
+        }
+
+        void CutoutGUI(GaussianSplat3DRenderer gs)
+        {
             EditorGUILayout.Space();
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Add Cutout"))
@@ -335,33 +404,44 @@ namespace Gaussians.ThreeD.Editor
                 EditorUtility.SetDirty(gs);
             }
             GUILayout.EndHorizontal();
-            EditorGUILayout.PropertyField(m_PropCutouts);
+        }
 
-            bool hasCutouts = gs.m_Cutouts != null && gs.m_Cutouts.Length != 0;
-            bool modifiedOrHasCutouts = gs.editModified || hasCutouts;
+        static int AdditionalGroupCutoutCount(GaussianSplat3DRenderer gs)
+        {
+            var group = gs.group;
+            if (!group || !group.isActiveAndEnabled || group.m_Cutouts == null) return 0;
+            var additional = new HashSet<GaussianCutout>();
+            foreach (var cutout in group.m_Cutouts)
+                if (cutout && cutout.isActiveAndEnabled &&
+                    (gs.m_Cutouts == null || Array.IndexOf(gs.m_Cutouts, cutout) < 0))
+                    additional.Add(cutout);
+            return additional.Count;
+        }
 
-            var asset = gs.asset;
-            EditorGUILayout.Space();
-            EditorGUI.BeginChangeCheck();
-            m_ExportBakeTransform = EditorGUILayout.Toggle("Export in world space", m_ExportBakeTransform);
-            if (EditorGUI.EndChangeCheck())
+        void DrawGroupInformation(GaussianSplat3DRenderer gs)
+        {
+            if (!Array.TrueForAll(targets, item => ((GaussianSplat3DRenderer)item).group == gs.group))
             {
-                EditorPrefs.SetBool(kPrefExportBake, m_ExportBakeTransform);
+                EditorGUILayout.HelpBox("Selected renderers have different group memberships.", MessageType.Info);
+                return;
             }
-
-            if (GUILayout.Button("Export PLY"))
-                ExportPlyFile(gs, m_ExportBakeTransform);
-            if (asset.posFormat > GaussianSplat3DAsset.VectorFormat.Norm16 ||
-                asset.scaleFormat > GaussianSplat3DAsset.VectorFormat.Norm16 ||
-                asset.colorFormat > GaussianSplat3DAsset.ColorFormat.Float16x4 ||
-                asset.shFormat > GaussianSplat3DAsset.SHFormat.Float16)
+            if (!gs.group)
             {
-                EditorGUILayout.HelpBox(
-                    "It is recommended to use High or VeryHigh quality preset for editing splats, lower levels are lossy",
-                    MessageType.Warning);
+                EditorGUILayout.HelpBox(targets.Length == 1 ? "Renderer is not part of a group." : "Selected renderers are not part of a group.", MessageType.Info);
+                return;
             }
+            string message = gs.group.MemberRenderingStatus(gs, out bool warning);
+            if (targets.Length > 1) message = "Selected renderers belong to this group. Inspect individual renderers for their rendering status.";
+            EditorGUILayout.HelpBox(message + " The group reference is assigned automatically.", warning ? MessageType.Warning : MessageType.Info);
+            using (new EditorGUI.DisabledScope(true))
+                EditorGUILayout.ObjectField("Gaussians Group", gs.group, typeof(GaussiansGroup), true);
+        }
 
-            bool displayEditStats = isToolActive || modifiedOrHasCutouts;
+        void DrawSplatInformation(GaussianSplat3DRenderer gs, bool canEdit)
+        {
+            ++s_EditStatsUpdateCounter;
+            bool hasCutouts = (gs.m_Cutouts != null && gs.m_Cutouts.Length != 0) || AdditionalGroupCutoutCount(gs) > 0;
+            bool displayEditStats = canEdit && (ToolManager.activeContextType == typeof(GaussianSplat3DToolContext) || gs.editModified || hasCutouts);
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Splats", $"{gs.splatCount:N0}");
             if (displayEditStats)

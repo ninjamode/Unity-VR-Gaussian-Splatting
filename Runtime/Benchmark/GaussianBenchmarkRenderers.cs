@@ -89,6 +89,18 @@ namespace Gaussians.Benchmark
                 if (s.opacityScale.apply) r.m_OpacityScale = s.opacityScale.value;
                 if (s.writeDepth.apply) r.m_WriteDepth = s.writeDepth.value;
             }
+            foreach (var g in subject.GetComponentsInChildren<GaussiansGroup>(true))
+            {
+                g.m_OptimizationOverrides = !s.compactionThreshold.apply;
+                g.m_CompactVisibleSplats = s.compactVisibleSplats.apply && s.compactVisibleSplats.value;
+                if (s.compactionThreshold.apply) g.m_CompactionThreshold = s.compactionThreshold.value;
+                if (s.renderPath != GaussianBenchmarkOverrides.Path.Inherit) g.m_RenderPath = (GaussianSplat3DRenderer.RenderPath)((int)s.renderPath - 1);
+                if (s.sortEveryNthFrame.apply) g.m_SortNthFrame = s.sortEveryNthFrame.value;
+                if (s.sortPrecision.apply) g.m_SortPrecision = s.sortPrecision.value;
+                if (s.alphaCutoff.apply) g.m_AlphaCutoff = s.alphaCutoff.value;
+                if (s.opacityAwareBounds.apply) g.m_OpacityAwareBounds = s.opacityAwareBounds.value;
+                if (s.writeDepth.apply) g.m_WriteDepth = s.writeDepth.value;
+            }
             foreach (var r in subject.GetComponentsInChildren<GaussianSplat3DRenderer>(true))
             {
                 if (s.stereoViewMode.apply) r.m_StereoViewMode = s.stereoViewMode.value;
@@ -134,6 +146,8 @@ namespace Gaussians.Benchmark
                     {
                         any = true;
                         if (!r.HasValidRenderSetup) return r.name + ": 3D render resources unavailable.";
+                        if (camera && r.ActiveGroup && !r.ActiveGroup.TryGetPreparation(camera, r, out _))
+                            return r.name + ": requested group did not prepare this member. " + r.ActiveGroup.Status;
                         if (camera && r.m_StereoViewMode != GaussianSplat3DRenderer.StereoViewMode.Automatic)
                         {
                             if (!r.TryGetViewPreparationStats(camera, out var stats)) return r.name + ": no stereo preparation recorded for the benchmark camera.";
@@ -149,7 +163,7 @@ namespace Gaussians.Benchmark
 
         [Serializable] public sealed class RendererInfo
         {
-            public string name, modality, asset, assetHash, path, settings;
+            public string name, modality, asset, assetHash, path, settings, group;
             public Matrix4x4 localToWorld;
             public int splats;
         }
@@ -177,17 +191,17 @@ namespace Gaussians.Benchmark
 
         static string DescribeSettings(GaussianSplat3DRenderer r) => JsonUtility.ToJson(new RendererSettingsSnapshot
         {
-            shOrder = r.m_SHOrder, sortEveryNthFrame = r.m_SortNthFrame,
+            shOrder = r.m_SHOrder, sortEveryNthFrame = r.EffectiveSortNthFrame,
             stereoViewMode = r.m_StereoViewMode.ToString(),
-            compactionThreshold = r.m_CompactionThreshold, optimizationOverrides = r.m_OptimizationOverrides,
-            sortPrecision = (int)r.m_SortPrecision, alphaCutoff = r.m_AlphaCutoff,
-            splatScale = r.m_SplatScale, opacityScale = r.m_OpacityScale, writeDepth = r.m_WriteDepth,
-            opacityAwareBounds = r.m_OpacityAwareBounds, earlyRejection = r.m_EarlyRejection,
+            compactionThreshold = r.EffectiveCompactionThreshold, optimizationOverrides = r.EffectiveOptimizationOverrides,
+            sortPrecision = (int)r.EffectiveSortPrecision, alphaCutoff = r.EffectiveAlphaCutoff,
+            splatScale = r.m_SplatScale, opacityScale = r.m_OpacityScale, writeDepth = r.EffectiveWriteDepth,
+            opacityAwareBounds = r.EffectiveOpacityAwareBounds, earlyRejection = r.m_EarlyRejection,
             earlyFrustumCulling = r.m_EarlyFrustumCulling, projectedFrustumCulling = false,
             minimumSplatRadiusPixels = r.m_MinimumSplatRadiusPixels,
             minimumSplatDistance = r.m_MinimumSplatDistance,
             minimumSplatOpacity = r.m_MinimumSplatOpacity,
-            deferredSHLoading = r.m_DeferredSHLoading, compactVisibleSplats = r.m_CompactVisibleSplats
+            deferredSHLoading = r.m_DeferredSHLoading, compactVisibleSplats = r.EffectiveCompactVisibleSplats
         });
 
         [Serializable] public sealed class StereoPreparationInfo
@@ -229,7 +243,7 @@ namespace Gaussians.Benchmark
             foreach (var r in subject.GetComponentsInChildren<GaussianSplat2DRenderer>())
                 if (r.enabled) result.Add(new RendererInfo { name = r.name, modality = "2D", asset = r.asset ? r.asset.name : "", assetHash = r.asset ? r.asset.dataHash.ToString() : "", localToWorld = r.transform.localToWorldMatrix, path = r.m_RenderPath.ToString(), splats = r.splatCount, settings = DescribeSettings(r) });
             foreach (var r in subject.GetComponentsInChildren<GaussianSplat3DRenderer>())
-                if (r.enabled) result.Add(new RendererInfo { name = r.name, modality = "3D", asset = r.asset ? r.asset.name : "", assetHash = r.asset ? r.asset.dataHash.ToString() : "", localToWorld = r.transform.localToWorldMatrix, path = r.m_RenderPath.ToString(), splats = r.splatCount, settings = DescribeSettings(r) });
+                if (r.enabled) result.Add(new RendererInfo { name = r.name, modality = "3D", group = r.ActiveGroup ? r.ActiveGroup.name : "", asset = r.asset ? r.asset.name : "", assetHash = r.asset ? r.asset.dataHash.ToString() : "", localToWorld = r.transform.localToWorldMatrix, path = r.EffectiveRenderPath.ToString(), splats = r.splatCount, settings = DescribeSettings(r) });
             return result.ToArray();
         }
     }

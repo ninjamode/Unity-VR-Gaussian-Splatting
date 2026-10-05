@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
@@ -16,9 +17,9 @@ namespace Gaussians.Core
         internal int Revision { get; private set; }
         internal GraphicsBuffer Buffer { get; private set; }
 
-        internal void Refresh(GaussianCutout[] cutouts, Matrix4x4 objectToWorld)
+        internal void Refresh(IReadOnlyList<GaussianCutout> cutouts, Matrix4x4 objectToWorld)
         {
-            int count = cutouts?.Length ?? 0;
+            int count = cutouts?.Count ?? 0;
             bool changed = !m_HasPayload || Count != count;
             if (m_Data.Length < Math.Max(1, count))
                 Array.Resize(ref m_Data, Math.Max(count, m_Data.Length * 2));
