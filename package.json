@@ -1,7 +1,7 @@
 {
   "name": "net.kleinbeck.gaussians",
   "displayName": "Unity Gaussians",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "unity": "6000.3",
   "description": "Import and render trained Gaussian splat models in Unity.",
   "dependencies": {

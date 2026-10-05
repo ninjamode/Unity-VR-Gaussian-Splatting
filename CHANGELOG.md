@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Global sorting through grouping
+- Singular render pipeline feature
+- Cleanup and performance improvement
+
+
 ## 0.1.0
 
 Initial package:
