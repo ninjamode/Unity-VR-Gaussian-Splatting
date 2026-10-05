@@ -203,8 +203,6 @@ namespace Gaussians.Benchmark
                 {
                     clone.benchmarkCamera.ResetAspect();
                     clone.benchmarkCamera.stereoTargetEye = StereoTargetEyeMask.Both;
-                    // A tracked child is driven explicitly by its pose driver; do not also apply legacy automatic camera tracking.
-                    XRDevice.DisableAutoXRCameraTracking(clone.benchmarkCamera, true);
                 }
                 else clone.benchmarkCamera.aspect = config.width / (float)config.height;
                 GaussianBenchmarkRenderers.Apply(selected.subject, selected.EffectiveSettings);

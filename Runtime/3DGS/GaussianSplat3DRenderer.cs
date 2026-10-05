@@ -30,10 +30,6 @@ namespace Gaussians.ThreeD
             DirectTransparent,
         }
 
-        public enum StereoViewMode { Automatic = 0, PerEye = 1, EyeParallel = 2, SharedSource = 3 }
-        [Tooltip("Experimental two-view compute implementation. Automatic currently uses Per Eye. Mono, one-view XR passes and unsupported kernels use Per Eye.")]
-        public StereoViewMode m_StereoViewMode = StereoViewMode.Automatic;
-
         public GaussianSplat3DAsset m_Asset;
 
         [Tooltip("Composite Texture preserves the original front-to-back offscreen accumulation. Direct Transparent sorts back-to-front and submits premultiplied splats to Unity's transparent queue.")]
@@ -228,7 +224,6 @@ namespace Gaussians.ThreeD
             public static readonly int DstBuffer = Shader.PropertyToID("_DstBuffer");
             public static readonly int BufferSize = Shader.PropertyToID("_BufferSize");
             public static readonly int ProjectionMatrix = Shader.PropertyToID("_ProjectionMatrix");
-            public static readonly int ViewDataOffset = Shader.PropertyToID("_ViewDataOffset");
             public static readonly int SplatViewCount = Shader.PropertyToID("_SplatViewCount");
             public static readonly int SplatEyeIndex = Shader.PropertyToID("_SplatEyeIndex");
             public static readonly int MatrixMV = Shader.PropertyToID("_MatrixMV");
@@ -321,7 +316,7 @@ namespace Gaussians.ThreeD
                 m_GpuSHData.SetData(asset.shData.GetData<uint>());
                 var (texWidth, texHeight) = GaussianSplat3DAsset.CalcTextureSize(asset.splatCount);
                 var texFormat = GaussianSplat3DAsset.ColorFormatToGraphics(asset.colorFormat);
-                var tex = new Texture2D(texWidth, texHeight, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.IgnoreMipmapLimit | TextureCreationFlags.DontUploadUponCreate) { name = "GaussianColorData" };
+                var tex = new Texture2D(texWidth, texHeight, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.DontUploadUponCreate) { name = "GaussianColorData" };
                 tex.SetPixelData(asset.colorData.GetData<byte>(), 0);
                 tex.Apply(false, true);
                 m_GpuColorData = tex;

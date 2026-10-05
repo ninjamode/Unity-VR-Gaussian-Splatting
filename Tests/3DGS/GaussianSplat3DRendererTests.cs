@@ -99,19 +99,16 @@ namespace Gaussians.Package.Tests
                 .OrderByDescending(i => GeneratedGaussianCloud.Position(i).z).Select(i => (uint)i), order);
         }
 
-        [TestCase(GaussianSplat3DRenderer.StereoViewMode.PerEye)]
-        [TestCase(GaussianSplat3DRenderer.StereoViewMode.EyeParallel)]
-        [TestCase(GaussianSplat3DRenderer.StereoViewMode.SharedSource)]
-        public void StereoProjectionUsesIndependentEyeMatrices(GaussianSplat3DRenderer.StereoViewMode mode)
+        [Test]
+        public void StereoProjectionUsesIndependentEyeMatrices()
         {
-            renderer.m_StereoViewMode = mode;
             var state = State(512); var right = state.View; right.m03 -= .064f;
             using var scope = new GaussianSplatCameraState(state.View, state.Projection, right, state.Projection,
                 state.ScreenSize, state.ScreenSize, 2).Apply(camera);
             var resources = renderer.GetCameraRenderResources(camera);
             using var cmd = new CommandBuffer(); renderer.CalcViewData(cmd, camera, resources);
             Graphics.ExecuteCommandBuffer(cmd);
-            Assert.That(resources.PreparationStats.EffectiveMode, Is.EqualTo(mode));
+            Assert.That(resources.PreparationStats.Kernel, Is.EqualTo("CSCalcViewDataStereoShared"));
             var views = new View[GeneratedGaussianCloud.Count * 2]; resources.GpuView.GetData(views);
             Assert.That(views[0].Position.w, Is.GreaterThan(0));
             Assert.That(views[GeneratedGaussianCloud.Count].Position.w, Is.GreaterThan(0));

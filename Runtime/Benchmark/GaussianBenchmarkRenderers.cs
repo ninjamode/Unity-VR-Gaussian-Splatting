@@ -17,18 +17,11 @@ namespace Gaussians.Benchmark
         public GaussianSplat3DRenderer.SortPrecision value;
     }
 
-    [Serializable] public struct BenchmarkStereoViewMode
-    {
-        public bool apply;
-        public GaussianSplat3DRenderer.StereoViewMode value;
-    }
-
     [Serializable]
     public sealed class GaussianBenchmarkOverrides
     {
         public enum Path { Inherit, CompositeTexture, DirectTransparent }
         public Path renderPath;
-        public BenchmarkStereoViewMode stereoViewMode;
         public BenchmarkInt shOrder = new() { value = 3 };
         public BenchmarkInt sortEveryNthFrame = new() { value = 1 };
         public BenchmarkFloat alphaCutoff = new() { value = 1f / 255 };
@@ -54,8 +47,6 @@ namespace Gaussians.Benchmark
         public static string Validate(GameObject subject, GaussianBenchmarkOverrides settings)
         {
             if (settings == null) return "Settings cannot be null.";
-            if (settings.stereoViewMode.apply && !Enum.IsDefined(typeof(GaussianSplat3DRenderer.StereoViewMode), settings.stereoViewMode.value))
-                return "Unknown stereo view mode.";
             if (settings.projectedFrustumCulling.apply && settings.projectedFrustumCulling.value) return "Projected frustum culling was removed. Update this legacy benchmark variant.";
             if (settings.compactionThreshold.apply && settings.compactionThreshold.value < -1) return "Compaction threshold must be -1 or greater.";
             if (settings.shOrder.apply && (settings.shOrder.value < 0 || settings.shOrder.value > 3)) return "SH order must be 0–3.";
@@ -103,7 +94,6 @@ namespace Gaussians.Benchmark
             }
             foreach (var r in subject.GetComponentsInChildren<GaussianSplat3DRenderer>(true))
             {
-                if (s.stereoViewMode.apply) r.m_StereoViewMode = s.stereoViewMode.value;
                 r.m_OptimizationOverrides = !s.compactionThreshold.apply; // Explicit automatic-policy experiments opt in.
                 if (s.compactionThreshold.apply) r.m_CompactionThreshold = s.compactionThreshold.value;
                 r.m_CompactVisibleSplats = false; r.m_DeferredSHLoading = false;
@@ -148,13 +138,6 @@ namespace Gaussians.Benchmark
                         if (!r.HasValidRenderSetup) return r.name + ": 3D render resources unavailable.";
                         if (camera && r.ActiveGroup && !r.ActiveGroup.TryGetPreparation(camera, r, out _))
                             return r.name + ": requested group did not prepare this member. " + r.ActiveGroup.Status;
-                        if (camera && r.m_StereoViewMode != GaussianSplat3DRenderer.StereoViewMode.Automatic)
-                        {
-                            if (!r.TryGetViewPreparationStats(camera, out var stats)) return r.name + ": no stereo preparation recorded for the benchmark camera.";
-                            if (stats.RequestedMode != r.m_StereoViewMode || stats.EffectiveMode != r.m_StereoViewMode ||
-                                (r.m_StereoViewMode != GaussianSplat3DRenderer.StereoViewMode.PerEye && stats.ViewCount != 2) || stats.Fallbacks != 0)
-                                return r.name + ": requested stereo kernel did not run for every preparation. " + stats.FallbackReason;
-                        }
                     }
                 foreach (var r in other) if (r && r.enabled && r.gameObject.activeInHierarchy) any = true;
                 return any ? null : "Selected subject contains no active enabled renderers.";
@@ -174,7 +157,6 @@ namespace Gaussians.Benchmark
         [Serializable] sealed class RendererSettingsSnapshot
         {
             public int shOrder, sortEveryNthFrame, sortPrecision, compactionThreshold;
-            public string stereoViewMode;
             public bool optimizationOverrides;
             public float alphaCutoff, splatScale, opacityScale;
             public bool writeDepth, opacityAwareBounds, earlyRejection, earlyFrustumCulling, projectedFrustumCulling;
@@ -192,7 +174,6 @@ namespace Gaussians.Benchmark
         static string DescribeSettings(GaussianSplat3DRenderer r) => JsonUtility.ToJson(new RendererSettingsSnapshot
         {
             shOrder = r.m_SHOrder, sortEveryNthFrame = r.EffectiveSortNthFrame,
-            stereoViewMode = r.m_StereoViewMode.ToString(),
             compactionThreshold = r.EffectiveCompactionThreshold, optimizationOverrides = r.EffectiveOptimizationOverrides,
             sortPrecision = (int)r.EffectiveSortPrecision, alphaCutoff = r.EffectiveAlphaCutoff,
             splatScale = r.m_SplatScale, opacityScale = r.m_OpacityScale, writeDepth = r.EffectiveWriteDepth,
@@ -206,9 +187,9 @@ namespace Gaussians.Benchmark
 
         [Serializable] public sealed class StereoPreparationInfo
         {
-            public string renderer, requestedMode, effectiveMode, kernel, fallbackReason;
+            public string renderer, kernel;
             public int viewCount, groupSize, lastPreparedFrame;
-            public long preparations, enqueuedDispatches, cacheHits, fallbacks;
+            public long preparations, enqueuedDispatches, cacheHits;
         }
 
         public static StereoPreparationInfo[] DescribeStereoPreparation(GameObject subject, Camera camera)
@@ -220,12 +201,9 @@ namespace Gaussians.Benchmark
                 bool available = r.TryGetViewPreparationStats(camera, out var stats);
                 result.Add(new StereoPreparationInfo
                 {
-                    renderer = r.name, requestedMode = r.m_StereoViewMode.ToString(),
-                    effectiveMode = available ? stats.EffectiveMode.ToString() : "unavailable",
-                    kernel = available ? stats.Kernel : "unavailable",
-                    fallbackReason = available ? stats.FallbackReason : "No preparation recorded for this camera",
+                    renderer = r.name, kernel = available ? stats.Kernel : "unavailable",
                     viewCount = stats.ViewCount, groupSize = stats.GroupSize, lastPreparedFrame = stats.LastFrame,
-                    preparations = stats.Preparations, enqueuedDispatches = stats.Dispatches, cacheHits = stats.CacheHits, fallbacks = stats.Fallbacks
+                    preparations = stats.Preparations, enqueuedDispatches = stats.Dispatches, cacheHits = stats.CacheHits
                 });
             }
             return result.ToArray();

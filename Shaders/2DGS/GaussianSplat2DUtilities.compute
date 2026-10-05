@@ -24,11 +24,12 @@
 #pragma kernel CSExportData
 #pragma kernel CSCopySplats
 
-// DeviceRadixSort
-#pragma multi_compile __ KEY_UINT KEY_INT KEY_FLOAT
-#pragma multi_compile __ PAYLOAD_UINT PAYLOAD_INT PAYLOAD_FLOAT
-#pragma multi_compile __ SHOULD_ASCEND
-#pragma multi_compile __ SORT_PAIRS
+// Gaussian sorting always uses ascending uint keys paired with uint splat IDs.
+// Fix these choices so unused generic sorter options do not multiply every kernel.
+#define KEY_UINT
+#define PAYLOAD_UINT
+#define SHOULD_ASCEND
+#define SORT_PAIRS
 #pragma multi_compile __ VULKAN
 #pragma kernel InitDeviceRadixSort
 #pragma kernel Upsweep

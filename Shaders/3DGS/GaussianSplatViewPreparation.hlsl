@@ -234,11 +234,8 @@ void CSCalcViewDataStereoShared(uint3 id : SV_DispatchThreadID)
 
 [numthreads(GROUP_SIZE,1,1)]
 void CSCalcViewData(uint3 id : SV_DispatchThreadID)
-{ CalculateViewDataForEye(id.x, GetSplatEye(0), _ViewDataOffset); }
+{ CalculateViewDataForEye(id.x, GetSplatEye(0), _ViewDataBase); }
 [numthreads(GROUP_SIZE,1,1)]
 void CSCalcViewDataDiagnostics(uint3 id : SV_DispatchThreadID)
-{ CalculateViewDataForEye(id.x, GetSplatEye(0), _ViewDataOffset); }
-[numthreads(GROUP_SIZE,1,1)]
-void CSCalcViewDataStereoEyes(uint3 id : SV_DispatchThreadID)
-{ CalculateViewDataForEye(id.x, GetSplatEye(id.z), _ViewDataBase + id.z * _ViewDataStride); }
+{ CalculateViewDataForEye(id.x, GetSplatEye(0), _ViewDataBase); }
 #undef BENCHMARK_COUNT

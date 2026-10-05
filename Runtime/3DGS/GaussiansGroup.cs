@@ -45,7 +45,10 @@ namespace Gaussians.ThreeD
                 Debug.LogWarning($"Cannot add '{renderer.name}' to '{name}': already assigned to '{renderer.group.name}'.", this);
                 return false;
             }
-            m_Members.Add(renderer); renderer.m_Group = this;
+            int emptySlot = m_Members.FindIndex(r => !r);
+            if (emptySlot >= 0) m_Members[emptySlot] = renderer;
+            else m_Members.Add(renderer);
+            renderer.m_Group = this;
             return true;
         }
         public bool RemoveMember(GaussianSplat3DRenderer renderer)
@@ -63,16 +66,17 @@ namespace Gaussians.ThreeD
         public void ValidateMembers()
         {
             var seen = new HashSet<GaussianSplat3DRenderer>();
-            for (int i = 0; i < m_Members.Count;)
+            for (int i = 0; i < m_Members.Count; ++i)
             {
                 var r = m_Members[i];
-                if (!r || !seen.Add(r)) { m_Members.RemoveAt(i); continue; }
+                if (!r) continue;
+                if (!seen.Add(r)) { m_Members[i] = null; continue; }
                 if (r.group && r.group != this)
                 {
                     Debug.LogWarning($"Cannot add '{r.name}' to '{name}': already assigned to '{r.group.name}'.", this);
-                    m_Members.RemoveAt(i); continue;
+                    m_Members[i] = null; continue;
                 }
-                r.m_Group = this; ++i;
+                r.m_Group = this;
             }
         }
         void OnEnable() { ResolveShaders(); ValidateMembers(); }

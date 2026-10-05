@@ -79,7 +79,7 @@ namespace Gaussians.ThreeD
                 if (state.Members[i] == member)
                 {
                     ref var stats = ref state.Views[i].PreparationStats;
-                    stats.Preparations = stats.Dispatches = stats.CacheHits = stats.Fallbacks = 0;
+                    stats.Preparations = stats.Dispatches = stats.CacheHits = 0;
                 }
         }
         internal void InvalidateMember(GaussianSplat3DRenderer member)

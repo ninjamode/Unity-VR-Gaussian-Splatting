@@ -223,7 +223,7 @@ namespace Gaussians.TwoD
             m_GpuSHData.SetData(asset.shData.GetData<uint>());
             var (texWidth, texHeight) = GaussianSplat2DAsset.CalcTextureSize(asset.splatCount);
             var texFormat = GaussianSplat2DAsset.ColorFormatToGraphics(asset.colorFormat);
-            var tex = new Texture2D(texWidth, texHeight, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.IgnoreMipmapLimit | TextureCreationFlags.DontUploadUponCreate) { name = "GaussianColorData" };
+            var tex = new Texture2D(texWidth, texHeight, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.DontUploadUponCreate) { name = "GaussianColorData" };
             tex.SetPixelData(asset.colorData.GetData<byte>(), 0);
             tex.Apply(false, true);
             m_GpuColorData = tex;

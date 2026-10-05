@@ -52,7 +52,6 @@ namespace Gaussians.ThreeD
             public Matrix4x4 Projection;
             public Matrix4x4 RightView, RightProjection;
             public int ViewCount;
-            public StereoViewMode StereoMode;
             public int IndirectInstanceMultiplier;
             public Vector2Int RightScreenSize;
             public bool ConvertColor;
@@ -75,7 +74,7 @@ namespace Gaussians.ThreeD
 
             public bool Equals(ViewSignature other)
             {
-                return StereoMode == other.StereoMode && EarlyFrustumCulling == other.EarlyFrustumCulling &&
+                return EarlyFrustumCulling == other.EarlyFrustumCulling &&
                        OpacityAwareBounds == other.OpacityAwareBounds && AlphaCutoff.Equals(other.AlphaCutoff) &&
                        IndirectInstanceMultiplier == other.IndirectInstanceMultiplier && DeferredSHLoading == other.DeferredSHLoading && MinimumDistance.Equals(other.MinimumDistance) && MinimumOpacity.Equals(other.MinimumOpacity) &&
                        AttributeRevision == other.AttributeRevision && NearClip.Equals(other.NearClip) && RightView.Equals(other.RightView) && RightProjection.Equals(other.RightProjection) &&
@@ -277,7 +276,6 @@ namespace Gaussians.ThreeD
                 RightView = state.RightView,
                 RightProjection = state.RightProjection,
                 ViewCount = state.ViewCount,
-                StereoMode = ResolveStereoViewMode(state, false),
                 IndirectInstanceMultiplier = state.IndirectInstanceMultiplier,
                 RightScreenSize = state.RightScreenSize,
                 ConvertColor = effectiveDirectConversion,
@@ -384,8 +382,10 @@ namespace Gaussians.ThreeD
             cmb.SetComputeIntParam(EffectiveCSSplatUtilities, "_ViewDataStride", viewStride);
             bool diagnostics = cam == m_BenchmarkCamera && m_BenchmarkCaptureFrame && m_BenchmarkCounts != null;
             var state = GaussianSplatCameraState.ForCamera(cam);
-            var mode = ResolveStereoViewMode(state, diagnostics);
-            int kernel = diagnostics ? EffectiveCSSplatUtilities.FindKernel("CSCalcViewDataDiagnostics") : ViewKernel(mode);
+            bool stereo = state.ViewCount == 2;
+            string kernelName = diagnostics ? "CSCalcViewDataDiagnostics" :
+                stereo ? "CSCalcViewDataStereoShared" : "CSCalcViewData";
+            int kernel = EffectiveCSSplatUtilities.FindKernel(kernelName);
             SetAssetDataOnCS(cmb, kernel, resources);
             if (diagnostics)
             {
@@ -412,37 +412,18 @@ namespace Gaussians.ThreeD
             cmb.SetComputeIntParam(EffectiveCSSplatUtilities, Props.SHOnly, m_SHOnly ? 1 : 0);
             cmb.SetComputeFloatParam(EffectiveCSSplatUtilities, Props.MinimumSplatRadiusPixels, (m_EarlyRejection ? Mathf.Max(0, m_MinimumSplatRadiusPixels) : 0));
             EffectiveCSSplatUtilities.GetKernelThreadGroupSizes(kernel, out uint groupSize, out _, out _);
-            if (mode == StereoViewMode.PerEye)
-            {
-                for (int eye = 0; eye < resources.ViewCount; ++eye)
-                {
-                    BindViewEye(cmb, eye == 0 ? state.View : state.RightView,
-                        eye == 0 ? state.Projection : state.RightProjection,
-                        eye == 0 ? state.ScreenSize : state.RightScreenSize, objectToWorld, false);
-                    cmb.SetComputeIntParam(EffectiveCSSplatUtilities, Props.ViewDataOffset, (resources.IsGroupView ? resources.ViewBase : 0) + eye * viewStride);
-                    cmb.DispatchCompute(EffectiveCSSplatUtilities, kernel, (m_SplatCount + (int)groupSize - 1) / (int)groupSize, 1, 1);
-                }
-            }
-            else
-            {
-                BindViewEye(cmb, state.View, state.Projection, state.ScreenSize, objectToWorld, false);
+            BindViewEye(cmb, state.View, state.Projection, state.ScreenSize, objectToWorld, false);
+            if (stereo)
                 BindViewEye(cmb, state.RightView, state.RightProjection, state.RightScreenSize, objectToWorld, true);
-                cmb.DispatchCompute(EffectiveCSSplatUtilities, kernel, (m_SplatCount + (int)groupSize - 1) / (int)groupSize,
-                    1, mode == StereoViewMode.EyeParallel ? 2 : 1);
-            }
+            cmb.DispatchCompute(EffectiveCSSplatUtilities, kernel, (m_SplatCount + (int)groupSize - 1) / (int)groupSize, 1, 1);
+
             ref var stats = ref resources.PreparationStats;
-            stats.RequestedMode = m_StereoViewMode;
-            stats.EffectiveMode = mode;
-            stats.Kernel = diagnostics ? "CSCalcViewDataDiagnostics" : ViewKernelName(mode);
+            stats.Kernel = kernelName;
             stats.ViewCount = resources.ViewCount;
             stats.GroupSize = (int)groupSize;
             stats.LastFrame = Time.frameCount;
             ++stats.Preparations;
-            stats.Dispatches += mode == StereoViewMode.PerEye ? resources.ViewCount : 1;
-            stats.FallbackReason = m_StereoViewMode == StereoViewMode.Automatic ? "Automatic retains PerEye pending device measurements" :
-                m_StereoViewMode == mode ? "" : diagnostics ? "Mono diagnostics" :
-                state.ViewCount != 2 ? "Pass has one view" : "Stereo kernel unavailable";
-            if (m_StereoViewMode != StereoViewMode.Automatic && m_StereoViewMode != mode) ++stats.Fallbacks;
+            ++stats.Dispatches;
         }
 
         static readonly int s_RightMV = Shader.PropertyToID("_StereoRightMatrixMV");
@@ -462,35 +443,12 @@ namespace Gaussians.ThreeD
             cmd.SetComputeVectorParam(EffectiveCSSplatUtilities, right ? s_RightCamera : Props.VecWorldSpaceCameraPos, view.inverse.GetColumn(3));
         }
 
-        ComputeShader m_StereoKernelShader;
-        int m_EyeParallelKernel = -1, m_SharedSourceKernel = -1;
-        internal StereoViewMode ResolveStereoViewMode(in GaussianSplatCameraState state, bool diagnostics)
-        {
-            if (diagnostics || state.ViewCount != 2 ||
-                (m_StereoViewMode != StereoViewMode.EyeParallel && m_StereoViewMode != StereoViewMode.SharedSource))
-                return StereoViewMode.PerEye;
-            if (m_StereoKernelShader != EffectiveCSSplatUtilities)
-            {
-                m_StereoKernelShader = EffectiveCSSplatUtilities;
-                m_EyeParallelKernel = FindViewKernel("CSCalcViewDataStereoEyes");
-                m_SharedSourceKernel = FindViewKernel("CSCalcViewDataStereoShared");
-            }
-            int kernel = ViewKernel(m_StereoViewMode);
-            return kernel >= 0 && EffectiveCSSplatUtilities.IsSupported(kernel) ? m_StereoViewMode : StereoViewMode.PerEye;
-        }
-        int FindViewKernel(string name) => EffectiveCSSplatUtilities && EffectiveCSSplatUtilities.HasKernel(name) ? EffectiveCSSplatUtilities.FindKernel(name) : -1;
-        int ViewKernel(StereoViewMode mode) => mode == StereoViewMode.EyeParallel ? m_EyeParallelKernel :
-            mode == StereoViewMode.SharedSource ? m_SharedSourceKernel : (int)KernelIndices.CalcViewData;
-        static string ViewKernelName(StereoViewMode mode) => mode == StereoViewMode.EyeParallel ? "CSCalcViewDataStereoEyes" :
-            mode == StereoViewMode.SharedSource ? "CSCalcViewDataStereoShared" : "CSCalcViewData";
-
         // Enqueued work only, not GPU execution timings. Per-camera so other passes cannot replace benchmark evidence.
         internal struct ViewPreparationStats
         {
-            public StereoViewMode RequestedMode, EffectiveMode;
-            public string Kernel, FallbackReason;
+            public string Kernel;
             public int ViewCount, GroupSize, LastFrame;
-            public long Preparations, Dispatches, CacheHits, Fallbacks;
+            public long Preparations, Dispatches, CacheHits;
         }
         internal bool TryGetViewPreparationStats(Camera camera, out ViewPreparationStats stats)
         {
@@ -505,7 +463,7 @@ namespace Gaussians.ThreeD
             if (camera && m_CameraRenderResources.TryGetValue(camera, out var resources))
             {
                 ref var stats = ref resources.PreparationStats;
-                stats.Preparations = stats.Dispatches = stats.CacheHits = stats.Fallbacks = 0;
+                stats.Preparations = stats.Dispatches = stats.CacheHits = 0;
             }
         }
 

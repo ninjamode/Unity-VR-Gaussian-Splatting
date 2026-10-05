@@ -80,7 +80,8 @@ namespace Gaussians.ThreeD.Editor
             serializedObject.ApplyModifiedProperties();
             
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Members", $"{group.Members.Count} total / {group.ActiveMemberCount} active / {group.Members.Count - group.ActiveMemberCount} inactive");
+            int assignedMembers = group.Members.Count(r => r);
+            EditorGUILayout.LabelField("Members", $"{assignedMembers} total / {group.ActiveMemberCount} active / {assignedMembers - group.ActiveMemberCount} inactive");
             EditorGUILayout.LabelField("Group GPU memory", EditorUtility.FormatBytes(group.AllocatedBytes));
             string error = group.isActiveAndEnabled ? group.RenderingError : null;
             EditorGUILayout.HelpBox(error ?? (group.isActiveAndEnabled ? group.Status : "Group is disabled. Enabled members render independently using their own settings."), error != null ? MessageType.Error : MessageType.Info);

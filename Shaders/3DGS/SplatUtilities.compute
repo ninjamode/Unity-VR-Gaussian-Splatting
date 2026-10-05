@@ -30,11 +30,12 @@
 #pragma kernel CSCompactVisible
 #pragma multi_compile_local _ GAUSSIANS_GPU_SORT_COUNT
 
-// DeviceRadixSort
-#pragma multi_compile __ KEY_UINT KEY_INT KEY_FLOAT
-#pragma multi_compile __ PAYLOAD_UINT PAYLOAD_INT PAYLOAD_FLOAT
-#pragma multi_compile __ SHOULD_ASCEND
-#pragma multi_compile __ SORT_PAIRS
+// Gaussian sorting always uses ascending uint keys paired with uint splat IDs.
+// Fix these choices so unused generic sorter options do not multiply every kernel.
+#define KEY_UINT
+#define PAYLOAD_UINT
+#define SHOULD_ASCEND
+#define SORT_PAIRS
 #pragma multi_compile __ VULKAN
 #pragma kernel InitDeviceRadixSort
 #pragma kernel Upsweep
@@ -44,7 +45,6 @@
 // Separate instrumented kernel: ordinary rendering compiles out all counter atomics.
 #pragma kernel CSCalcViewDataDiagnostics GAUSSIANS_BENCHMARK_COUNTS
 // Append kernels: existing runtime/editing kernel ordinals must remain stable.
-#pragma kernel CSCalcViewDataStereoEyes
 #pragma kernel CSCalcViewDataStereoShared
 #pragma kernel CSGroupKeys
 #pragma kernel CSGroupScatter
@@ -63,7 +63,6 @@ float4x4 _MatrixWorldToObject;
 float4x4 _MatrixMV;
 float4x4 _MatrixMVP;
 float4x4 _ProjectionMatrix;
-uint _ViewDataOffset;
 uint _SortDescending;
 float _MinimumSplatRadiusPixels;
 float _SplatNearClip; // Raw camera near plane, used only to classify benchmark rejections.

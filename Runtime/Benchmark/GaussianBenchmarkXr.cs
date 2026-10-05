@@ -9,7 +9,7 @@ namespace Gaussians.Benchmark
     [Serializable] public sealed class GaussianBenchmarkXrInfo
     {
         public string display, stereoMode, refreshRateHz, frameBudgetMs;
-        public string cameraPolicy = "Authored center-camera path; automatic camera transform tracking disabled. Runtime eye offsets/projections and compositor reprojection remain device-controlled.";
+        public string cameraPolicy = "Authored center-camera path; camera transform driven by benchmark. Runtime eye offsets/projections and compositor reprojection remain device-controlled.";
         public int eyeWidth, eyeHeight;
         public float eyeResolutionScale, viewportScale, foveationLevel;
         public string foveationFlags;
@@ -41,7 +41,7 @@ namespace Gaussians.Benchmark
             bool refreshAvailable = display.TryGetDisplayRefreshRate(out float refresh) && float.IsFinite(refresh) && refresh > 0;
             return new GaussianBenchmarkXrInfo
             {
-                display = display.SubsystemDescriptor.id, stereoMode = XRSettings.stereoRenderingMode.ToString(),
+                display = display.subsystemDescriptor.id, stereoMode = XRSettings.stereoRenderingMode.ToString(),
                 eyeWidth = XRSettings.eyeTextureWidth, eyeHeight = XRSettings.eyeTextureHeight,
                 eyeResolutionScale = XRSettings.eyeTextureResolutionScale, viewportScale = XRSettings.renderViewportScale,
                 foveationLevel = display.foveatedRenderingLevel, foveationFlags = display.foveatedRenderingFlags.ToString(),

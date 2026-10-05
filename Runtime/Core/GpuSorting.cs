@@ -22,11 +22,7 @@ namespace Gaussians.Core
         //Number of sorting passes required to sort a 32bit key, KEY_BITS / DEVICE_RADIX_SORT_BITS
         const uint DEVICE_RADIX_SORT_PASSES = 4;
 
-        //Keywords to enable for the shader
-        private LocalKeyword m_keyUintKeyword;
-        private LocalKeyword m_payloadUintKeyword;
-        private LocalKeyword m_ascendKeyword;
-        private LocalKeyword m_sortPairKeyword;
+        // Runtime choices; key/payload types, ascending order and pairs are fixed in HLSL.
         private LocalKeyword m_vulkanKeyword;
         private LocalKeyword m_gpuCountKeyword;
 
@@ -110,19 +106,11 @@ namespace Gaussians.Core
                 m_kernelDownsweep = cs.FindKernel("Downsweep");
             }
 
-            m_keyUintKeyword = new LocalKeyword(cs, "KEY_UINT");
-            m_payloadUintKeyword = new LocalKeyword(cs, "PAYLOAD_UINT");
-            m_ascendKeyword = new LocalKeyword(cs, "SHOULD_ASCEND");
-            m_sortPairKeyword = new LocalKeyword(cs, "SORT_PAIRS");
             m_vulkanKeyword = new LocalKeyword(cs, "VULKAN");
             // Optional: the 2D shader uses only CPU-sized dispatches. The constructor
             // logs an error for absent keywords; FindKeyword safely returns an invalid one.
             m_gpuCountKeyword = cs.keywordSpace.FindKeyword("GAUSSIANS_GPU_SORT_COUNT");
 
-            cs.EnableKeyword(m_keyUintKeyword);
-            cs.EnableKeyword(m_payloadUintKeyword);
-            cs.EnableKeyword(m_ascendKeyword);
-            cs.EnableKeyword(m_sortPairKeyword);
             if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Vulkan)
                 cs.EnableKeyword(m_vulkanKeyword);
             else
