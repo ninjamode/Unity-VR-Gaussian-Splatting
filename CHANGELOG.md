@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- Default to Optimal Projection (see paper) for better wide angle rendering
+- Better benchmarking path preview
+
 ## 0.2.0
 
 - Global sorting through grouping
