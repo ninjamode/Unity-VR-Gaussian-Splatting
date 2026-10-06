@@ -111,6 +111,9 @@ namespace Gaussians.ThreeD
         }
         internal string CompatibilityError(IReadOnlyList<GaussianSplat3DRenderer> members) => RenderingError;
         internal CameraResources Collect(Camera camera, List<GaussianSplat3DRenderer> candidates)
+            => Collect(camera, candidates, Time.frameCount);
+
+        internal CameraResources Collect(Camera camera, List<GaussianSplat3DRenderer> candidates, int frame)
         {
             string error = CompatibilityError(candidates);
             if (error != null)
@@ -122,9 +125,16 @@ namespace Gaussians.ThreeD
                 return null;
             }
             if (candidates.Count == 0) return null;
+            var leader = candidates[0];
+            var sorter = leader.GroupSorter;
+            if (!sorter.Valid)
+            {
+                Status = "Sorting shader is unavailable.";
+                return null;
+            }
             m_StaleCameras.Clear();
             foreach (var pair in m_Cameras)
-                if (!pair.Key || Time.frameCount - pair.Value.LastUsedFrame > 120) m_StaleCameras.Add(pair.Key);
+                if (!pair.Key || frame - pair.Value.LastUsedFrame > 120) m_StaleCameras.Add(pair.Key);
             foreach (var c in m_StaleCameras) { m_Cameras[c].Dispose(); m_Cameras.Remove(c); }
             if (!m_Cameras.TryGetValue(camera, out var r))
             {
@@ -133,8 +143,7 @@ namespace Gaussians.ThreeD
             int count = 0;
             foreach (var member in candidates) count = checked(count + member.splatCount);
             int views = GaussianSplatCameraState.ForCamera(camera).ViewCount;
-            var leader = candidates[0];
-            bool rebuild = r.Capacity < count || r.Buffers.ViewCount != views || r.Shader != leader.EffectiveCSSplatUtilities;
+            bool rebuild = r.Capacity < count || r.Buffers.ViewCount != views || r.Shader != leader.EffectiveCSSplatUtilities || r.Buffers.GpuView?.stride != leader.ViewDataSize;
             bool layout = rebuild || r.Count != count || r.Members.Count != candidates.Count;
             if (!layout)
                 for (int i = 0, offset = 0; i < candidates.Count; offset += candidates[i++].splatCount)
@@ -143,12 +152,13 @@ namespace Gaussians.ThreeD
             {
                 int capacity = count > r.Capacity ? Math.Max(count, checked(r.Capacity + r.Capacity / 2)) : r.Capacity;
                 r.Dispose(); r.Capacity = capacity; r.HasEstimate = false;
-                r.Shader = leader.EffectiveCSSplatUtilities; r.Sorter = leader.GroupSorter;
-                r.Buffers.EnsureBuffers(capacity, views, r.Sorter, Time.frameCount);
-                r.Buffers.EnsureCompactionBuffers();
+                r.Shader = leader.EffectiveCSSplatUtilities; r.Sorter = sorter;
                 r.Depths = new GraphicsBuffer(GraphicsBuffer.Target.Structured, capacity, 4) { name = "GaussianGroupDepths" };
                 r.Selection = new GraphicsBuffer(GraphicsBuffer.Target.Structured, capacity, 4) { name = "GaussianGroupSelection" };
             }
+            r.Sorter = sorter;
+            r.Buffers.EnsureBuffers(r.Capacity, views, r.Sorter, frame, leader.ViewDataSize);
+            r.Buffers.EnsureCompactionBuffers();
             if (layout)
             {
                 ++r.Generation; r.Pending = false; r.HasEstimate = false;
@@ -163,10 +173,10 @@ namespace Gaussians.ThreeD
                 }
                 r.Initialized = false; r.PolicyFrame = -1;
             }
-            r.Count = count; r.LastUsedFrame = Time.frameCount;
-            if (r.PolicyFrame != Time.frameCount || r.PolicyThreshold != leader.EffectiveCompactionThreshold)
+            r.Count = count; r.LastUsedFrame = frame;
+            if (r.PolicyFrame != frame || r.PolicyThreshold != leader.EffectiveCompactionThreshold)
             {
-                r.PolicyFrame = Time.frameCount; r.PolicyThreshold = leader.EffectiveCompactionThreshold;
+                r.PolicyFrame = frame; r.PolicyThreshold = leader.EffectiveCompactionThreshold;
                 r.PolicyCompaction = GaussianSplat3DRenderer.ShouldCompact(leader.EffectiveCompactionThreshold, r.HasEstimate,
                     (uint)count - Math.Min((uint)count, r.Visible));
             }
@@ -194,7 +204,7 @@ namespace Gaussians.ThreeD
             foreach (var state in m_Cameras.Values)
             {
                 // Views, key/payload ping-pong, depth/selection and compaction/radix scratch.
-                AllocatedBytes += (long)state.Capacity * (40 * state.Buffers.ViewCount + 24) +
+                AllocatedBytes += (long)state.Capacity * (state.Buffers.GpuView.stride * state.Buffers.ViewCount + 24) +
                     (long)state.Buffers.CompactGroups.count * 4 + 40 +
                     (long)state.Buffers.SorterArgs.resources.passHistBuffer.count * 4 + 4096;
             }
@@ -232,7 +242,7 @@ namespace Gaussians.ThreeD
                 cmd.SetComputeIntParam(cs, "_CompactViewCount", b.ViewCount);
                 cmd.SetComputeIntParam(cs, "_CompactGroupCount", groups);
                 cmd.SetComputeIntParam(cs, "_CompactInstanceMultiplier", GaussianSplatCameraState.ForCamera(r.Camera).IndirectInstanceMultiplier);
-                int count = cs.FindKernel("CSCountVisibleGroups"), scan = cs.FindKernel("CSScanVisibleGroups");
+                int count = cs.FindKernel(r.Leader.ViewKernel("CSCountVisibleGroups")), scan = cs.FindKernel("CSScanVisibleGroups");
                 cmd.SetComputeBufferParam(cs, count, "_SplatViewData", b.GpuView);
                 cmd.SetComputeBufferParam(cs, count, "_CompactGroups", b.CompactGroups);
                 cmd.DispatchCompute(cs, count, groups, 1, 1);
@@ -244,7 +254,7 @@ namespace Gaussians.ThreeD
             {
                 cmd.BeginSample("Gaussians.Group.CompactAndSort");
                 if (r.Compact) Counts();
-                int scatter = cs.FindKernel("CSGroupScatter");
+                int scatter = cs.FindKernel(r.Leader.ViewKernel("CSGroupScatter"));
                 cmd.SetComputeIntParam(cs, "_SplatCount", r.Count);
                 cmd.SetComputeIntParam(cs, "_ViewDataStride", r.Capacity);
                 cmd.SetComputeIntParam(cs, "_CompactViewCount", b.ViewCount);

@@ -65,6 +65,7 @@ namespace Gaussians.ThreeD.Editor
             if (m_AdvancedExpanded)
             {
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("m_RenderPath"));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_ProjectionMode"), new GUIContent("Projection"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("m_ConvertGammaToLinear"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("m_RenderOrder"));
                 using (new EditorGUI.DisabledScope(true))

@@ -18,6 +18,10 @@ namespace Gaussians.ThreeD
         internal GaussiansGroup ActiveGroup => group && group.isActiveAndEnabled ? group : null;
         internal float EffectiveAlphaCutoff => ActiveGroup ? Mathf.Clamp01(ActiveGroup.m_AlphaCutoff) : Mathf.Clamp01(m_AlphaCutoff);
         internal bool EffectiveOpacityAwareBounds => ActiveGroup ? ActiveGroup.m_OpacityAwareBounds : m_OpacityAwareBounds;
+        internal ProjectionMode EffectiveProjectionMode => ActiveGroup ? ActiveGroup.m_ProjectionMode : m_ProjectionMode;
+        internal bool UseOptimalProjection => EffectiveProjectionMode == ProjectionMode.Optimal && EffectiveRenderMode == RenderMode.Splats;
+        internal int ViewDataSize => UseOptimalProjection ? 48 : kGpuViewDataSize;
+        internal string ViewKernel(string name) => UseOptimalProjection ? name + "Optimal" : name;
         internal RenderPath EffectiveRenderPath => ActiveGroup ? ActiveGroup.m_RenderPath : m_RenderPath;
         internal int EffectiveRenderOrder => ActiveGroup ? ActiveGroup.m_RenderOrder : m_RenderOrder;
         internal SortPrecision EffectiveSortPrecision => ActiveGroup ? ActiveGroup.m_SortPrecision : m_SortPrecision;

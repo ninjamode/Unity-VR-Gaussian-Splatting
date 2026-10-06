@@ -72,10 +72,14 @@ namespace Gaussians.TwoD
 
             internal bool EnsureBuffers(int count, GpuSorting sorter)
             {
-                if (count <= 0)
+                if (count <= 0 || !sorter.Valid)
                     return false;
                 if (GpuView != null && GpuView.count == count)
+                {
+                    if (SorterArgs.resources.altBuffer == null)
+                        SorterArgs.resources = GpuSorting.SupportResources.Load((uint)count);
                     return true;
+                }
 
                 DisposeBuffers();
                 GpuView = new GraphicsBuffer(GraphicsBuffer.Target.Structured, count, kGpuViewDataSize)
@@ -94,8 +98,7 @@ namespace Gaussians.TwoD
                 SorterArgs.inputKeys = GpuSortDistances;
                 SorterArgs.inputValues = GpuSortKeys;
                 SorterArgs.count = (uint)count;
-                if (sorter.Valid)
-                    SorterArgs.resources = GpuSorting.SupportResources.Load((uint)count);
+                SorterArgs.resources = GpuSorting.SupportResources.Load((uint)count);
 
                 SortKeysInitialized = false;
                 ResetValidity();

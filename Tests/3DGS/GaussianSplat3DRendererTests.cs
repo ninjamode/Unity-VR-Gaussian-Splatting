@@ -16,7 +16,7 @@ namespace Gaussians.Package.Tests
         Camera camera;
         GaussianSplatCameraState.Scope cameraScope;
         [StructLayout(LayoutKind.Sequential)]
-        struct View { public Vector4 Position; public Vector2 Axis1, Axis2; public uint RG, BA; }
+        struct View { public Vector4 Position; public Vector3 Axis1, Axis2; public uint RG, BA; }
 
         [OneTimeSetUp] public void CreateCloud()
         {
@@ -108,7 +108,7 @@ namespace Gaussians.Package.Tests
             var resources = renderer.GetCameraRenderResources(camera);
             using var cmd = new CommandBuffer(); renderer.CalcViewData(cmd, camera, resources);
             Graphics.ExecuteCommandBuffer(cmd);
-            Assert.That(resources.PreparationStats.Kernel, Is.EqualTo("CSCalcViewDataStereoShared"));
+            Assert.That(resources.PreparationStats.Kernel, Is.EqualTo("CSCalcViewDataStereoSharedOptimal"));
             var views = new View[GeneratedGaussianCloud.Count * 2]; resources.GpuView.GetData(views);
             Assert.That(views[0].Position.w, Is.GreaterThan(0));
             Assert.That(views[GeneratedGaussianCloud.Count].Position.w, Is.GreaterThan(0));

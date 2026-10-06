@@ -14,6 +14,8 @@ namespace Gaussians.ThreeD
         [Range(0, 1)] public float m_AlphaCutoff = GaussianSplat3DRenderer.DefaultAlphaCutoff;
         public bool m_OpacityAwareBounds = true;
         public bool m_WriteDepth;
+        [Tooltip("Optimal (default) projects onto a per-eye tangent plane and evaluates its perspective-correct footprint. Standard uses the screen-space Jacobian ellipse.")]
+        public GaussianSplat3DRenderer.ProjectionMode m_ProjectionMode = GaussianSplat3DRenderer.ProjectionMode.Optimal;
         [Min(-1), Tooltip("Rejected splats required to enable compaction and deferred SH. -1: off; 0: always on; positive: automatic using recent visibility.")]
         public int m_CompactionThreshold = 100000;
         public GaussianSplat3DRenderer.SortPrecision m_SortPrecision = GaussianSplat3DRenderer.SortPrecision.Bits32;

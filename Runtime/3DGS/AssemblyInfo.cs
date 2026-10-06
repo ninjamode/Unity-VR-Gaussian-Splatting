@@ -6,3 +6,5 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Gaussians.ThreeD.Editor.Tests")]
 
 [assembly: InternalsVisibleTo("Gaussians.Benchmark")]
+
+[assembly: InternalsVisibleTo("Gaussians.Projection.Tests")]

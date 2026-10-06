@@ -6,9 +6,9 @@ A renderer can belong to only one group. Adding an already-owned renderer fails 
 
 ## Shared Settings Override
 
-The group overrides alpha cutoff, opacity-aware bounds, render path, render order, sort precision/cadence, compaction policy, write depth, color conversion and shader resources. Render path, order and color conversion are under Advanced Options, as on renderers. Member values are preserved and restored when the group is disabled or membership is removed; the renderer Inspector displays active overrides read-only. Differing member settings do not split the group.
+The group overrides alpha cutoff, opacity-aware bounds, render path, projection, render order, sort precision/cadence, compaction policy, write depth, color conversion and shader resources. Member values are preserved and restored when the group is disabled or membership is removed, the renderer Inspector displays active overrides read-only. Differing member settings do not split the group.
 
-Active groups use Splats display mode, overriding member debug modes. There is no nested-group support. Missing or unsupported group shaders are reported as errors and prevent group rendering, without an independent fallback. Disabled renderers, invalid assets and camera layer exclusions can prevent individual members from participating; the renderer information area distinguishes these states from grouped rendering and a disabled group.
+Active groups use Splats display mode, overriding member debug modes. There is no nested-group support. Missing or unsupported group shaders are reported as errors and prevent group rendering, without an independent fallback. Disabled renderers, invalid assets and camera layer exclusions prevent individual members from participating.
 
 ## Clipping
 

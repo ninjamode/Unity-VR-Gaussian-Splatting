@@ -49,6 +49,23 @@
 #pragma kernel CSGroupKeys
 #pragma kernel CSGroupScatter
 
+// Kernel-local variants keep Standard's 40-byte layout and avoid multiplying
+// sorting/editing variants. Macro aliases reuse the same entrypoint bodies.
+#pragma kernel CSCalcViewDataOptimal GAUSSIANS_OPTIMAL_PROJECTION
+#pragma kernel CSCalcViewDataDiagnosticsOptimal GAUSSIANS_OPTIMAL_PROJECTION GAUSSIANS_BENCHMARK_COUNTS
+#pragma kernel CSCalcViewDataStereoSharedOptimal GAUSSIANS_OPTIMAL_PROJECTION
+#pragma kernel CSCountVisibleGroupsOptimal GAUSSIANS_OPTIMAL_PROJECTION
+#pragma kernel CSCompactVisibleOptimal GAUSSIANS_OPTIMAL_PROJECTION
+#pragma kernel CSGroupScatterOptimal GAUSSIANS_OPTIMAL_PROJECTION
+#if defined(GAUSSIANS_OPTIMAL_PROJECTION)
+#define CSCalcViewData CSCalcViewDataOptimal
+#define CSCalcViewDataDiagnostics CSCalcViewDataDiagnosticsOptimal
+#define CSCalcViewDataStereoShared CSCalcViewDataStereoSharedOptimal
+#define CSCountVisibleGroups CSCountVisibleGroupsOptimal
+#define CSCompactVisible CSCompactVisibleOptimal
+#define CSGroupScatter CSGroupScatterOptimal
+#endif
+
 // GPU sorting needs wave ops
 #pragma require wavebasic
 #pragma require waveballot

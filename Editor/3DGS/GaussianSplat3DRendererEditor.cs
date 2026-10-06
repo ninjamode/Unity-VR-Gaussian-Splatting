@@ -127,7 +127,7 @@ namespace Gaussians.ThreeD.Editor
             SharedField("m_WriteDepth", new GUIContent("Write Depth (URP Only)"));
             SharedField("m_AlphaCutoff", new GUIContent("Alpha Cutoff"));
             SharedField("m_OpacityAwareBounds", new GUIContent("Opacity Aware Bounds"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_MinimumSplatRadiusPixels"), new GUIContent("Minimum Splat Radius (px)", "Projected three-sigma radius before footprint filtering, in render-target pixels. Zero disables size pruning. Higher values can remove detail; 0.7 is a provisional safeguard for tiny models."));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_MinimumSplatRadiusPixels"), new GUIContent("Minimum Splat Radius (px)", "Projected three-sigma radius before footprint filtering, in render-target pixels. Optimal uses a conservative projected bound. Zero disables size pruning. Higher values can remove detail; 0.7 is a provisional safeguard for tiny models."));
             var threshold = SharedProperty("m_CompactionThreshold");
             using (new EditorGUI.DisabledScope(groupControlled))
                 EditorGUILayout.PropertyField(threshold, new GUIContent("Compaction Threshold", "Rejected splats required to enable compaction and deferred SH. -1: off; 0: always on; positive: automatic using recent visibility. Default 100,000 is experimental."));
@@ -148,9 +148,10 @@ namespace Gaussians.ThreeD.Editor
             if (m_AdvancedExpanded)
             {
                 SharedField("m_RenderPath");
+                SharedField("m_ProjectionMode", new GUIContent("Projection"));
                 SharedField("m_ConvertGammaToLinear");
                 var depth = serializedObject.FindProperty("m_MinimumSplatDistance");
-                EditorGUILayout.PropertyField(depth, new GUIContent("Minimum View Depth", "Camera-space center depth in world units. Effective minimum is the larger of this value and the rendering camera near plane. Zero uses only the camera near plane."));
+                EditorGUILayout.PropertyField(depth, new GUIContent("Minimum View Depth", "Camera-space depth in world units; Optimal rejects the whole tangent quad if its support reaches this limit. Effective minimum is the larger of this value and the rendering camera near plane. Zero uses only the camera near plane."));
                 if (!depth.hasMultipleDifferentValues)
                 {
                     var camera = Camera.main;

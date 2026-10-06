@@ -30,10 +30,14 @@ namespace Gaussians.ThreeD
             DirectTransparent,
         }
 
+        public enum ProjectionMode { Standard, Optimal }
+
         public GaussianSplat3DAsset m_Asset;
 
         [Tooltip("Composite Texture preserves the original front-to-back offscreen accumulation. Direct Transparent sorts back-to-front and submits premultiplied splats to Unity's transparent queue.")]
         public RenderPath m_RenderPath = RenderPath.DirectTransparent;
+        [Tooltip("Optimal (default) projects onto a per-eye tangent plane and evaluates its perspective-correct footprint. Standard uses the screen-space Jacobian ellipse.")]
+        public ProjectionMode m_ProjectionMode = ProjectionMode.Optimal;
         [Tooltip("Rendering order within the selected render path. Higher values render later/on top. When paths are mixed, the Composite Texture group is always resolved before the Direct Transparent group.")]
         public int m_RenderOrder;
         [Tooltip("Direct Transparent: convert gamma-encoded colors before blending into a Linear project target. Leave off for assets already trained/exported in linear space.")]
@@ -77,12 +81,12 @@ namespace Gaussians.ThreeD
         [Tooltip("Depth-key precision: 32 retains full precision; 24/16 discard low mantissa bits and use three/two radix passes. Lower precision can cause ordering artifacts.")]
         public SortPrecision m_SortPrecision = SortPrecision.Bits32;
         internal int sortKeyBits => EffectiveSortPrecision == SortPrecision.Bits16 ? 16 : EffectiveSortPrecision == SortPrecision.Bits24 ? 24 : 32;
-        [Min(0)] [Tooltip("Minimum camera-space center depth in world units while Early Rejection is enabled. Combined with the camera near plane using the larger distance. Default 0.1 protects against very close splats; zero uses only the camera near plane.")]
+        [Min(0)] [Tooltip("Minimum camera-space depth in world units while Early Rejection is enabled. Optimal also rejects tangent quads reaching this distance. Combined with the camera near plane using the larger distance. Default 0.1 protects against very close splats; zero uses only the camera near plane.")]
         public float m_MinimumSplatDistance = 0.1f;
         [Range(0, 1)] [Tooltip("Reject splats below this peak opacity after opacity scaling, before SH loading. Zero disables additional opacity rejection. Selected splats are exempt.")]
         [HideInInspector] public float m_MinimumSplatOpacity;
         [Min(0.0f)]
-        [Tooltip("Cull splats below this projected three-sigma pixel radius, before covariance filtering. Zero preserves existing filtering. Higher values can remove detail or cause popping.")]
+        [Tooltip("Cull splats below this projected three-sigma pixel radius, before covariance filtering. Optimal uses a conservative projective radius bound. Zero preserves existing filtering. Higher values can remove detail or cause popping.")]
         public float m_MinimumSplatRadiusPixels = 0.7f;
 
         public RenderMode m_RenderMode = RenderMode.Splats;
@@ -392,6 +396,11 @@ namespace Gaussians.ThreeD
                 m_MatDebugPoints = new Material(m_ShaderDebugPoints) {name = "GaussianSplat3DDebugPoints", enableInstancing = true};
                 m_MatDebugBoxes = new Material(m_ShaderDebugBoxes) {name = "GaussianSplat3DDebugBoxes", enableInstancing = true};
             }
+            if (m_MatSplats)
+            {
+                m_MatSplats.SetKeyword(new LocalKeyword(m_MatSplats.shader, "GAUSSIANS_OPTIMAL_PROJECTION"), UseOptimalProjection);
+                m_MatSplatsDirect.SetKeyword(new LocalKeyword(m_MatSplatsDirect.shader, "GAUSSIANS_OPTIMAL_PROJECTION"), UseOptimalProjection);
+            }
         }
 
         void EnsureDirectQuadMesh()
@@ -537,6 +546,7 @@ namespace Gaussians.ThreeD
 
             UpdateDirectMaterialProperties(cam, cameraResources);
             cameraResources.DirectMaterial ??= new Material(m_MatSplatsDirect);
+            cameraResources.DirectMaterial.SetKeyword(new LocalKeyword(cameraResources.DirectMaterial.shader, "GAUSSIANS_OPTIMAL_PROJECTION"), UseOptimalProjection);
             cameraResources.DirectMaterial.renderQueue = (int)RenderQueue.Transparent + Mathf.Clamp(EffectiveRenderOrder, -499, 500);
 
             Bounds worldBounds = GetWorldBounds(cam);

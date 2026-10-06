@@ -19,8 +19,9 @@ Enable:
 
 ## Rendering settings
 
+- **Projection:** under Advanced Options, immediately below Render Path, sets the splat prjection mode. Optimal is the default: it uses perspective-correct interpolation for its Gaussian falloff, reducing wide-view approximation distortion. Keep this enabled for XR. Standard is the default 3DGS behavior, which is not great for wide viewing angles.
 - **16-bit Sorting:** optional lower depth-key precision with fewer sorting passes. It can reduce cost, but tied depths can cause ordering artifacts. Start with the default 32-bit sorting and compare quality and timings on your device. Larger **Sort Every N Frames** intervals can also leave stale order during motion.
-- **Minimum Splat Radius:** defaults to 0.7 render-target pixels. This removes small splats and can lose detail; zero disables size pruning. **Minimum View Depth** rejects centers closer than its threshold or the camera near plane.
+- **Minimum Splat Radius:** defaults to 0.7 render-target pixels. This removes small splats and can lose detail; zero disables size pruning. **Minimum View Depth** rejects centers closer than its threshold or the camera near plane. Optimal also rejects a whole quad whose retained support reaches that limit; this prevents eye-plane growth but can remove large nearby splats. Optimal radius pruning uses a conservative bound on the unfiltered projected three-sigma footprint, so it can retain more tiny splats.
 - **Compaction Threshold:** enables compacted sorting and deferred SH loading using a recent rejected-splat estimate. `-1` disables both, `0` always enables them; the default is 100,000. Benchmark this heuristic for your model.
 - **Advanced Options:** Direct Transparent is the default render path; Composite Texture uses offscreen accumulation. Keep gamma-to-linear conversion enabled for gamma-encoded colors in a Linear project. Models do not share a global per-splat sort order.
 - **Alpha Cutoff / Write Depth:** cutoff removes faint contributions. URP depth writing supplies approximate splat-center depth for XR reprojection without changing color blending.

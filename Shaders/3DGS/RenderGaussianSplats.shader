@@ -45,7 +45,7 @@ Shader "Gaussians/3D/Render Splats"
             half4 col : COLOR0;
             float2 pos : TEXCOORD0;
             float4 vertex : SV_POSITION;
-        #if defined(GAUSSIANS_METAL_FOVEATION)
+        #if defined(GAUSSIANS_METAL_FOVEATION) && !defined(GAUSSIANS_OPTIMAL_PROJECTION)
             nointerpolation float2 centerUV : TEXCOORD1;
             nointerpolation float4 inverseAxes : TEXCOORD2;
         #endif
@@ -94,8 +94,17 @@ Shader "Gaussians/3D/Render Splats"
             // geometry coverage must not rescale the falloff or foveation inverse.
             o.pos = corner;
             o.vertex = view.pos;
+        #if defined(GAUSSIANS_OPTIMAL_PROJECTION)
+            float3 displacement = corner.x * view.axis1 + corner.y * view.axis2;
+            o.vertex.xy += displacement.xy;
+            o.vertex.w += displacement.z;
+            // Keep existing approximate center depth, while varying W supplies
+            // the optimal ray/plane coordinates through hardware interpolation.
+            o.vertex.z = (view.pos.z / view.pos.w) * o.vertex.w;
+        #else
             o.vertex.xy += (corner.x * view.axis1 + corner.y * view.axis2) * (2.0 / _ScreenParams.xy) * view.pos.w;
-        #if defined(GAUSSIANS_METAL_FOVEATION)
+        #endif
+        #if defined(GAUSSIANS_METAL_FOVEATION) && !defined(GAUSSIANS_OPTIMAL_PROJECTION)
             float4 centerScreen = ComputeScreenPos(view.pos);
             o.centerUV = centerScreen.xy / centerScreen.w;
             float2 axis1 = view.axis1;
@@ -120,7 +129,7 @@ Shader "Gaussians/3D/Render Splats"
         half EvaluateSplatAlpha(inout v2f i)
         {
             float2 pos = i.pos;
-        #if defined(GAUSSIANS_METAL_FOVEATION)
+        #if defined(GAUSSIANS_METAL_FOVEATION) && !defined(GAUSSIANS_OPTIMAL_PROJECTION)
             UNITY_BRANCH if (_FOVEATED_RENDERING_NON_UNIFORM_RASTER)
             {
                 float2 delta = (SplatRasterToLinearUV(i.vertex.xy / _ScreenParams.xy) - i.centerUV) * _ScreenParams.xy;
@@ -169,6 +178,7 @@ Shader "Gaussians/3D/Render Splats"
             #pragma multi_compile_instancing
             #pragma multi_compile_local __ GAUSSIANS_DIRECT_TRANSPARENT
             #pragma multi_compile_local __ GAUSSIANS_GROUPED
+            #pragma multi_compile_local __ GAUSSIANS_OPTIMAL_PROJECTION
             ENDCG
         }
         Pass
@@ -183,6 +193,7 @@ Shader "Gaussians/3D/Render Splats"
             #pragma multi_compile_instancing
             #pragma multi_compile_local __ GAUSSIANS_DIRECT_TRANSPARENT
             #pragma multi_compile_local __ GAUSSIANS_GROUPED
+            #pragma multi_compile_local __ GAUSSIANS_OPTIMAL_PROJECTION
             ENDCG
         }
     }

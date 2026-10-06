@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// View-only kernels. Source formats, output layout and sorting remain unchanged.
+// View-only kernels; source formats and sorting remain unchanged.
 uint _ViewDataBase, _ViewDataStride;
 struct SplatEyeParameters
 {
@@ -58,6 +58,8 @@ bool EarlyOutsideSplatViewport(float3 pos, float3x3 rotScale, float4 centerClip,
     return OutsideSplatViewport(centerClip, 4.0 * sqrt(diagonal + errorGuard), eye);
 }
 
+#include "GaussianSplatOptimalProjection.hlsl"
+
 void CalculateViewDataForEye(uint idx, SplatEyeParameters eye, uint outputOffset)
 {
     if (idx >= _SplatCount)
@@ -97,7 +99,7 @@ void CalculateViewDataForEye(uint idx, SplatEyeParameters eye, uint outputOffset
     if (centerClipPos.w > 0)
     {
 
-        if (_EarlyFrustumCulling != 0u && EarlyOutsideSplatViewport(splat.pos, splatRotScaleMat, centerClipPos, eye))
+        if (!UsesOptimalPerspective(eye) && _EarlyFrustumCulling != 0u && EarlyOutsideSplatViewport(splat.pos, splatRotScaleMat, centerClipPos, eye))
             REJECT_SPLAT_VIEW(11)
 
         float3 cov3d0, cov3d1;
@@ -105,21 +107,9 @@ void CalculateViewDataForEye(uint idx, SplatEyeParameters eye, uint outputOffset
         float splatScale2 = splatScale * splatScale;
         cov3d0 *= splatScale2;
         cov3d1 *= splatScale2;
-        float3 cov2d = CalcCovariance2D(splat.pos, cov3d0, cov3d1, eye.matrixMV, eye.projection, eye.screen);
-        
-        // Size culling is independent of the original +0.3 covariance filter.
-        // At zero this branch does no additional eigensystem work.
-        if (_MinimumSplatRadiusPixels > 0.0)
-        {
-            float2 rawDiagonal = cov2d.xz - 0.3;
-            float largestVariance = max(0.0, 0.5 * (rawDiagonal.x + rawDiagonal.y) +
-                length(float2(0.5 * (rawDiagonal.x - rawDiagonal.y), cov2d.y)));
-            if (3.0 * sqrt(largestVariance) < _MinimumSplatRadiusPixels)
-                REJECT_SPLAT_VIEW(7)
-        }
-        DecomposeCovariance(cov2d, view.axis1, view.axis2);
-        if (!all(isfinite(float4(view.axis1, view.axis2))))
-            REJECT_SPLAT_VIEW(8)
+        uint projectionReason = PrepareSplatProjection(splat.pos, cov3d0, cov3d1,
+            selected ? (half)-1 : effectiveOpacity, eye, view);
+        if (projectionReason != 0u) REJECT_SPLAT_VIEW(projectionReason)
 
         if (_DeferredSHLoading != 0) splat.sh = LoadSplatSH(idx, splat.sh.col);
 
@@ -149,24 +139,14 @@ bool BeginStereoEye(float3 pos, float3x3 rotScale, SplatEyeParameters eye, out S
     if (depth <= _SplatCullDistance) return false;
     view.pos = mul(eye.matrixMVP, float4(pos, 1));
     if (view.pos.w <= 0) return false;
-    if (_EarlyFrustumCulling != 0u && EarlyOutsideSplatViewport(pos, rotScale, view.pos, eye))
+    if (!UsesOptimalPerspective(eye) && _EarlyFrustumCulling != 0u && EarlyOutsideSplatViewport(pos, rotScale, view.pos, eye))
     { view = (SplatViewData)0; return false; }
     return true;
 }
 
-bool FinishStereoEye(float3 pos, float3 cov3d0, float3 cov3d1, SplatEyeParameters eye, inout SplatViewData view)
+bool FinishStereoEye(float3 pos, float3 cov3d0, float3 cov3d1, half opacity, SplatEyeParameters eye, inout SplatViewData view)
 {
-    float3 cov2d = CalcCovariance2D(pos, cov3d0, cov3d1, eye.matrixMV, eye.projection, eye.screen);
-    if (_MinimumSplatRadiusPixels > 0.0)
-    {
-        float2 rawDiagonal = cov2d.xz - 0.3;
-        float largestVariance = max(0.0, 0.5 * (rawDiagonal.x + rawDiagonal.y) +
-            length(float2(0.5 * (rawDiagonal.x - rawDiagonal.y), cov2d.y)));
-        if (3.0 * sqrt(largestVariance) < _MinimumSplatRadiusPixels)
-        { view = (SplatViewData)0; return false; }
-    }
-    DecomposeCovariance(cov2d, view.axis1, view.axis2);
-    if (!all(isfinite(float4(view.axis1, view.axis2))))
+    if (PrepareSplatProjection(pos, cov3d0, cov3d1, opacity, eye, view) != 0u)
     { view = (SplatViewData)0; return false; }
     return true;
 }
@@ -217,8 +197,8 @@ void CSCalcViewDataStereoShared(uint3 id : SV_DispatchThreadID)
         CalcCovariance3D(rotScale, cov3d0, cov3d1);
         float scale2 = _SplatScale * _SplatScale;
         cov3d0 *= scale2; cov3d1 *= scale2;
-        if (shadeLeft) shadeLeft = FinishStereoEye(splat.pos, cov3d0, cov3d1, left, leftView);
-        if (shadeRight) shadeRight = FinishStereoEye(splat.pos, cov3d0, cov3d1, right, rightView);
+        if (shadeLeft) shadeLeft = FinishStereoEye(splat.pos, cov3d0, cov3d1, selected ? (half)-1 : effectiveOpacity, left, leftView);
+        if (shadeRight) shadeRight = FinishStereoEye(splat.pos, cov3d0, cov3d1, selected ? (half)-1 : effectiveOpacity, right, rightView);
         if (shadeLeft || shadeRight)
         {
             if (_DeferredSHLoading != 0) splat.sh = LoadSplatSH(idx, splat.sh.col);

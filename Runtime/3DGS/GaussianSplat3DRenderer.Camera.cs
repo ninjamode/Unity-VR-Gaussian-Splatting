@@ -71,10 +71,11 @@ namespace Gaussians.ThreeD
             public bool DeferredSHLoading;
             public bool EarlyFrustumCulling, OpacityAwareBounds;
             public float AlphaCutoff;
+            public bool OptimalProjection;
 
             public bool Equals(ViewSignature other)
             {
-                return EarlyFrustumCulling == other.EarlyFrustumCulling &&
+                return OptimalProjection == other.OptimalProjection && EarlyFrustumCulling == other.EarlyFrustumCulling &&
                        OpacityAwareBounds == other.OpacityAwareBounds && AlphaCutoff.Equals(other.AlphaCutoff) &&
                        IndirectInstanceMultiplier == other.IndirectInstanceMultiplier && DeferredSHLoading == other.DeferredSHLoading && MinimumDistance.Equals(other.MinimumDistance) && MinimumOpacity.Equals(other.MinimumOpacity) &&
                        AttributeRevision == other.AttributeRevision && NearClip.Equals(other.NearClip) && RightView.Equals(other.RightView) && RightProjection.Equals(other.RightProjection) &&
@@ -132,18 +133,22 @@ namespace Gaussians.ThreeD
             internal int ViewCount;
             internal int LastUsedFrame;
 
-            internal bool EnsureBuffers(int count, int viewCount, GpuSorting sorter, int frame)
+            internal bool EnsureBuffers(int count, int viewCount, GpuSorting sorter, int frame, int viewDataSize = kGpuViewDataSize)
             {
-                if (count <= 0)
+                if (count <= 0 || !sorter.Valid)
                     return false;
                 LastUsedFrame = frame;
                 if (GpuView != null && GpuView.count == checked(count * viewCount) &&
-                    ViewCount == viewCount && GpuSortKeys.count == count)
+                    ViewCount == viewCount && GpuSortKeys.count == count && GpuView.stride == viewDataSize)
+                {
+                    if (SorterArgs.resources.altBuffer == null)
+                        SorterArgs.resources = GpuSorting.SupportResources.Load((uint)count);
                     return true;
+                }
 
                 DisposeBuffers();
                 ViewCount = viewCount;
-                GpuView = new GraphicsBuffer(GraphicsBuffer.Target.Structured, checked(count * viewCount), kGpuViewDataSize)
+                GpuView = new GraphicsBuffer(GraphicsBuffer.Target.Structured, checked(count * viewCount), viewDataSize)
                 {
                     name = "GaussianSplatViewData"
                 };
@@ -159,8 +164,7 @@ namespace Gaussians.ThreeD
                 SorterArgs.inputKeys = GpuSortDistances;
                 SorterArgs.inputValues = GpuSortKeys;
                 SorterArgs.count = (uint)count;
-                if (sorter.Valid)
-                    SorterArgs.resources = GpuSorting.SupportResources.Load((uint)count);
+                SorterArgs.resources = GpuSorting.SupportResources.Load((uint)count);
 
                 SortKeysInitialized = false;
                 ResetValidity();
@@ -230,7 +234,7 @@ namespace Gaussians.ThreeD
                 return null;
 
             EnsureSorterAndRegister();
-            return resources.EnsureBuffers(m_SplatCount, GaussianSplatCameraState.ForCamera(cam).ViewCount, m_Sorter, Time.frameCount) ? resources : null;
+            return resources.EnsureBuffers(m_SplatCount, GaussianSplatCameraState.ForCamera(cam).ViewCount, m_Sorter, Time.frameCount, ViewDataSize) ? resources : null;
         }
 
         void DisposeCameraRenderResources()
@@ -272,6 +276,7 @@ namespace Gaussians.ThreeD
             RefreshCutouts(objectToWorld);
             return new ViewSignature
             {
+                OptimalProjection = UseOptimalProjection,
                 View = state.View,
                 RightView = state.RightView,
                 RightProjection = state.RightProjection,
@@ -383,8 +388,8 @@ namespace Gaussians.ThreeD
             bool diagnostics = cam == m_BenchmarkCamera && m_BenchmarkCaptureFrame && m_BenchmarkCounts != null;
             var state = GaussianSplatCameraState.ForCamera(cam);
             bool stereo = state.ViewCount == 2;
-            string kernelName = diagnostics ? "CSCalcViewDataDiagnostics" :
-                stereo ? "CSCalcViewDataStereoShared" : "CSCalcViewData";
+            string kernelName = ViewKernel(diagnostics ? "CSCalcViewDataDiagnostics" :
+                stereo ? "CSCalcViewDataStereoShared" : "CSCalcViewData");
             int kernel = EffectiveCSSplatUtilities.FindKernel(kernelName);
             SetAssetDataOnCS(cmb, kernel, resources);
             if (diagnostics)
@@ -519,7 +524,7 @@ namespace Gaussians.ThreeD
         void CountVisible(CommandBuffer cmd, Camera camera, CameraRenderResources resources)
         {
             resources.EnsureCompactionBuffers();
-            int countKernel = EffectiveCSSplatUtilities.FindKernel("CSCountVisibleGroups");
+            int countKernel = EffectiveCSSplatUtilities.FindKernel(ViewKernel("CSCountVisibleGroups"));
             int scanKernel = EffectiveCSSplatUtilities.FindKernel("CSScanVisibleGroups");
             int groups = resources.CompactGroups.count;
             cmd.SetComputeIntParam(EffectiveCSSplatUtilities, "_ViewDataStride", m_SplatCount);
@@ -566,7 +571,7 @@ namespace Gaussians.ThreeD
             resources.EnsureCompactionBuffers();
             cmd.BeginSample("GaussianSplat.CompactVisible");
             CountVisible(cmd, camera, resources);
-            int scatterKernel = EffectiveCSSplatUtilities.FindKernel("CSCompactVisible");
+            int scatterKernel = EffectiveCSSplatUtilities.FindKernel(ViewKernel("CSCompactVisible"));
             int groups = resources.CompactGroups.count;
 
             GaussianSplatCameraState.ForCamera(camera).GetSharedMatrices(out Matrix4x4 view, out _);

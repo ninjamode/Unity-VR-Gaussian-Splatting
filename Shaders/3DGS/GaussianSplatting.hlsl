@@ -699,7 +699,11 @@ SplatData LoadSplatData(uint idx)
 struct SplatViewData
 {
     float4 pos;
-    float2 axis1, axis2;
+#if defined(GAUSSIANS_OPTIMAL_PROJECTION)
+    float3 axis1, axis2; // Clip XY and W displacement per local Gaussian coordinate (48 bytes).
+#else
+    float2 axis1, axis2; // Pixel displacement (40 bytes).
+#endif
     uint2 color; // 4xFP16
 };
 

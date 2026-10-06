@@ -23,8 +23,18 @@ namespace Gaussians.Core
         const uint DEVICE_RADIX_SORT_PASSES = 4;
 
         // Runtime choices; key/payload types, ascending order and pairs are fixed in HLSL.
+        private LocalKeyword m_smallGroupsKeyword;
         private LocalKeyword m_vulkanKeyword;
         private LocalKeyword m_gpuCountKeyword;
+        LocalKeywordSpace m_KeywordSpace;
+        uint m_KeywordCount;
+        GraphicsDeviceType m_DeviceType;
+        bool m_UseSmallWorkgroups;
+        bool m_HasGpuCountKeyword;
+        readonly bool? m_SmallWorkgroupsOverride;
+#if UNITY_EDITOR
+        uint m_ShaderImportRevision;
+#endif
 
         public struct Args
         {
@@ -74,63 +84,101 @@ namespace Gaussians.Core
         }
 
         readonly ComputeShader m_CS;
-        readonly int m_kernelInitDeviceRadixSort = -1;
-        readonly int m_kernelUpsweep = -1;
-        readonly int m_kernelScan = -1;
-        readonly int m_kernelDownsweep = -1;
+        int m_kernelInitDeviceRadixSort = -1;
+        int m_kernelUpsweep = -1;
+        int m_kernelScan = -1;
+        int m_kernelDownsweep = -1;
 
-        readonly bool m_Valid;
-        readonly int m_InitDispatchGroups;
+        bool m_Valid;
+        int m_InitDispatchGroups;
 
-        public bool Valid => m_Valid;
+        public bool Valid
+        {
+            get { RefreshState(); return m_Valid; }
+        }
 
-        public GpuSorting(ComputeShader cs) : this(cs,
-            SystemInfo.maxComputeWorkGroupSize < 1024 || SystemInfo.maxComputeWorkGroupSizeX < 1024)
+        public GpuSorting(ComputeShader cs) : this(cs, null)
         {
         }
 
-        internal GpuSorting(ComputeShader cs, bool useSmallWorkgroups)
+        internal GpuSorting(ComputeShader cs, bool useSmallWorkgroups) : this(cs, (bool?)useSmallWorkgroups)
+        {
+        }
+
+        GpuSorting(ComputeShader cs, bool? useSmallWorkgroups)
         {
             m_CS = cs;
-            if (cs == null) return;
-            // Select the supported variant before querying kernel support. This
-            // setting also applies to the utility kernels in the same shader.
-            var smallGroups = new LocalKeyword(cs, "GAUSSIANS_SMALL_WORKGROUPS");
-            cs.SetKeyword(smallGroups, useSmallWorkgroups);
-            m_InitDispatchGroups = useSmallWorkgroups ? 4 : 1;
-            if (cs)
+            m_SmallWorkgroupsOverride = useSmallWorkgroups;
+            RefreshState();
+        }
+
+        void RefreshState()
+        {
+            if (!m_CS)
             {
-                m_kernelInitDeviceRadixSort = cs.FindKernel("InitDeviceRadixSort");
-                m_kernelUpsweep = cs.FindKernel("Upsweep");
-                m_kernelScan = cs.FindKernel("Scan");
-                m_kernelDownsweep = cs.FindKernel("Downsweep");
+                m_Valid = false;
+                return;
             }
 
-            m_vulkanKeyword = new LocalKeyword(cs, "VULKAN");
-            // Optional: the 2D shader uses only CPU-sized dispatches. The constructor
-            // logs an error for absent keywords; FindKeyword safely returns an invalid one.
-            m_gpuCountKeyword = cs.keywordSpace.FindKeyword("GAUSSIANS_GPU_SORT_COUNT");
+            var space = m_CS.keywordSpace;
+            uint keywordCount = space.keywordCount;
+            var deviceType = SystemInfo.graphicsDeviceType;
+            bool smallGroups = m_SmallWorkgroupsOverride ??
+                (SystemInfo.maxComputeWorkGroupSize < 1024 || SystemInfo.maxComputeWorkGroupSizeX < 1024);
+            bool shaderUnchanged = space == m_KeywordSpace && keywordCount == m_KeywordCount;
+#if UNITY_EDITOR
+            shaderUnchanged &= m_ShaderImportRevision == GpuSortingShaderPostprocessor.Revision;
+#endif
+            // Reimports/platform switches can rebuild the keyword space without
+            // replacing the ComputeShader object. Retry unsupported state as well,
+            // since a query during shader import need not describe its final state.
+            if (m_Valid && shaderUnchanged &&
+                deviceType == m_DeviceType && smallGroups == m_UseSmallWorkgroups &&
+                m_smallGroupsKeyword.isValid && m_vulkanKeyword.isValid &&
+                (!m_HasGpuCountKeyword || m_gpuCountKeyword.isValid))
+                return;
 
-            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Vulkan)
-                cs.EnableKeyword(m_vulkanKeyword);
-            else
-                cs.DisableKeyword(m_vulkanKeyword);
+            m_KeywordSpace = space;
+            m_KeywordCount = keywordCount;
+#if UNITY_EDITOR
+            m_ShaderImportRevision = GpuSortingShaderPostprocessor.Revision;
+#endif
+            m_DeviceType = deviceType;
+            m_UseSmallWorkgroups = smallGroups;
+            m_smallGroupsKeyword = space.FindKeyword("GAUSSIANS_SMALL_WORKGROUPS");
+            m_vulkanKeyword = space.FindKeyword("VULKAN");
+            // Optional: the 2D shader uses only CPU-sized dispatches.
+            m_gpuCountKeyword = space.FindKeyword("GAUSSIANS_GPU_SORT_COUNT");
+            m_HasGpuCountKeyword = m_gpuCountKeyword.isValid;
 
-            m_Valid = m_kernelInitDeviceRadixSort >= 0 &&
+            // Select the supported variant before querying kernel support. This
+            // setting also applies to the utility kernels in the same shader.
+            if (m_smallGroupsKeyword.isValid) m_CS.SetKeyword(m_smallGroupsKeyword, smallGroups);
+            if (m_vulkanKeyword.isValid) m_CS.SetKeyword(m_vulkanKeyword, deviceType == GraphicsDeviceType.Vulkan);
+            m_InitDispatchGroups = smallGroups ? 4 : 1;
+            m_kernelInitDeviceRadixSort = FindKernel("InitDeviceRadixSort");
+            m_kernelUpsweep = FindKernel("Upsweep");
+            m_kernelScan = FindKernel("Scan");
+            m_kernelDownsweep = FindKernel("Downsweep");
+
+            m_Valid = m_smallGroupsKeyword.isValid && m_vulkanKeyword.isValid &&
+                      m_kernelInitDeviceRadixSort >= 0 &&
                       m_kernelUpsweep >= 0 &&
                       m_kernelScan >= 0 &&
                       m_kernelDownsweep >= 0;
             if (m_Valid)
             {
-                if (!cs.IsSupported(m_kernelInitDeviceRadixSort) ||
-                    !cs.IsSupported(m_kernelUpsweep) ||
-                    !cs.IsSupported(m_kernelScan) ||
-                    !cs.IsSupported(m_kernelDownsweep))
+                if (!m_CS.IsSupported(m_kernelInitDeviceRadixSort) ||
+                    !m_CS.IsSupported(m_kernelUpsweep) ||
+                    !m_CS.IsSupported(m_kernelScan) ||
+                    !m_CS.IsSupported(m_kernelDownsweep))
                 {
                     m_Valid = false;
                 }
             }
         }
+
+        int FindKernel(string name) => m_CS.HasKernel(name) ? m_CS.FindKernel(name) : -1;
 
         static uint DivRoundUp(uint x, uint y) => (x + y - 1) / y;
 
@@ -150,13 +198,18 @@ namespace Gaussians.Core
         // inputKeys/inputValues without a full-buffer copy or rebinding draws.
         public void Dispatch(CommandBuffer cmd, Args args, int keyBits, GraphicsBuffer gpuCounts = null)
         {
-            Assert.IsTrue(Valid);
+            RefreshState();
+            Assert.IsTrue(m_Valid);
             if (keyBits != 16 && keyBits != 24 && keyBits != 32)
                 throw new System.ArgumentOutOfRangeException(nameof(keyBits));
             if (args.count == 0) return;
-            if (gpuCounts != null && !m_gpuCountKeyword.isValid)
+            if (gpuCounts != null && !m_HasGpuCountKeyword)
                 throw new System.InvalidOperationException("This sorter does not support GPU counts.");
-            if (m_gpuCountKeyword.isValid)
+            // Record the variant for this dispatch, even when another sorter shares
+            // the shader or an import reset its keyword state.
+            cmd.SetKeyword(m_CS, m_smallGroupsKeyword, m_UseSmallWorkgroups);
+            cmd.SetKeyword(m_CS, m_vulkanKeyword, m_DeviceType == GraphicsDeviceType.Vulkan);
+            if (m_HasGpuCountKeyword)
                 cmd.SetKeyword(m_CS, m_gpuCountKeyword, gpuCounts != null);
             if (gpuCounts != null)
             {
@@ -223,4 +276,25 @@ namespace Gaussians.Core
             }
         }
     }
+
+#if UNITY_EDITOR
+    // Unity may preserve/reuse a keyword-space pointer on import, including when
+    // only kernel ordinals change. An import revision avoids per-dispatch asset
+    // database queries and ensures cached kernel/support state is refreshed too.
+    sealed class GpuSortingShaderPostprocessor : UnityEditor.AssetPostprocessor
+    {
+        internal static uint Revision { get; private set; }
+
+        static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets,
+            string[] movedAssets, string[] movedFromAssetPaths)
+        {
+            foreach (string path in importedAssets)
+            {
+                if (!path.EndsWith(".compute", System.StringComparison.OrdinalIgnoreCase)) continue;
+                ++Revision;
+                return;
+            }
+        }
+    }
+#endif
 }

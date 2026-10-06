@@ -17,11 +17,18 @@ namespace Gaussians.Benchmark
         public GaussianSplat3DRenderer.SortPrecision value;
     }
 
+    [Serializable] public struct BenchmarkProjectionMode
+    {
+        public bool apply;
+        public GaussianSplat3DRenderer.ProjectionMode value;
+    }
+
     [Serializable]
     public sealed class GaussianBenchmarkOverrides
     {
         public enum Path { Inherit, CompositeTexture, DirectTransparent }
         public Path renderPath;
+        public BenchmarkProjectionMode projectionMode;
         public BenchmarkInt shOrder = new() { value = 3 };
         public BenchmarkInt sortEveryNthFrame = new() { value = 1 };
         public BenchmarkFloat alphaCutoff = new() { value = 1f / 255 };
@@ -47,6 +54,7 @@ namespace Gaussians.Benchmark
         public static string Validate(GameObject subject, GaussianBenchmarkOverrides settings)
         {
             if (settings == null) return "Settings cannot be null.";
+            if (settings.projectionMode.apply && !Enum.IsDefined(typeof(GaussianSplat3DRenderer.ProjectionMode), settings.projectionMode.value)) return "Unknown projection mode.";
             if (settings.projectedFrustumCulling.apply && settings.projectedFrustumCulling.value) return "Projected frustum culling was removed. Update this legacy benchmark variant.";
             if (settings.compactionThreshold.apply && settings.compactionThreshold.value < -1) return "Compaction threshold must be -1 or greater.";
             if (settings.shOrder.apply && (settings.shOrder.value < 0 || settings.shOrder.value > 3)) return "SH order must be 0–3.";
@@ -82,6 +90,7 @@ namespace Gaussians.Benchmark
             }
             foreach (var g in subject.GetComponentsInChildren<GaussiansGroup>(true))
             {
+                if (s.projectionMode.apply) g.m_ProjectionMode = s.projectionMode.value;
                 g.m_OptimizationOverrides = !s.compactionThreshold.apply;
                 g.m_CompactVisibleSplats = s.compactVisibleSplats.apply && s.compactVisibleSplats.value;
                 if (s.compactionThreshold.apply) g.m_CompactionThreshold = s.compactionThreshold.value;
@@ -94,6 +103,7 @@ namespace Gaussians.Benchmark
             }
             foreach (var r in subject.GetComponentsInChildren<GaussianSplat3DRenderer>(true))
             {
+                if (s.projectionMode.apply) r.m_ProjectionMode = s.projectionMode.value;
                 r.m_OptimizationOverrides = !s.compactionThreshold.apply; // Explicit automatic-policy experiments opt in.
                 if (s.compactionThreshold.apply) r.m_CompactionThreshold = s.compactionThreshold.value;
                 r.m_CompactVisibleSplats = false; r.m_DeferredSHLoading = false;
@@ -156,7 +166,7 @@ namespace Gaussians.Benchmark
         // fields that reference shaders, buffers or assets.
         [Serializable] sealed class RendererSettingsSnapshot
         {
-            public int shOrder, sortEveryNthFrame, sortPrecision, compactionThreshold;
+            public int shOrder, sortEveryNthFrame, sortPrecision, compactionThreshold, projectionMode, viewDataBytes;
             public bool optimizationOverrides;
             public float alphaCutoff, splatScale, opacityScale;
             public bool writeDepth, opacityAwareBounds, earlyRejection, earlyFrustumCulling, projectedFrustumCulling;
@@ -173,6 +183,7 @@ namespace Gaussians.Benchmark
 
         static string DescribeSettings(GaussianSplat3DRenderer r) => JsonUtility.ToJson(new RendererSettingsSnapshot
         {
+            projectionMode = (int)r.EffectiveProjectionMode, viewDataBytes = r.ViewDataSize,
             shOrder = r.m_SHOrder, sortEveryNthFrame = r.EffectiveSortNthFrame,
             compactionThreshold = r.EffectiveCompactionThreshold, optimizationOverrides = r.EffectiveOptimizationOverrides,
             sortPrecision = (int)r.EffectiveSortPrecision, alphaCutoff = r.EffectiveAlphaCutoff,
