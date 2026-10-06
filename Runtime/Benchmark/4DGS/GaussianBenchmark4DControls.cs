@@ -18,7 +18,7 @@ namespace Gaussians.Benchmark
             public bool overrideSHStorage;
             public GaussianSplatSHStorage shStorage;
         }
-        public Animation animation = Animation.SampledTimes;
+        public Animation animationMode = Animation.SampledTimes;
         public float heldTime;
         public float[] sampledTimes = { 0, .125f, .25f, .375f, .5f, .625f, .75f, .875f, 1 };
         public Vector2 timeRange = new(0, 1);
@@ -32,6 +32,7 @@ namespace Gaussians.Benchmark
         bool[] sourcePlaying;
         double[] sourcePositions;
         float[] sourceTimes;
+        
         public override void CaptureSourceState()
         {
             sourcePlayers = GetComponentsInChildren<GaussianSplat4D>(true);
@@ -39,6 +40,7 @@ namespace Gaussians.Benchmark
             sourcePositions = Array.ConvertAll(sourcePlayers, p => p.PositionSeconds);
             sourceTimes = Array.ConvertAll(sourcePlayers, p => p.m_ModelTime);
         }
+        
         public override void RestoreSourceState()
         {
             if (sourcePlayers == null) return;
@@ -55,8 +57,8 @@ namespace Gaussians.Benchmark
 
         public float TimeAt(int sample, float step)
         {
-            if (animation == Animation.Hold) return heldTime;
-            if (animation == Animation.SampledTimes) return sampledTimes[sample % sampledTimes.Length];
+            if (animationMode == Animation.Hold) return heldTime;
+            if (animationMode == Animation.SampledTimes) return sampledTimes[sample % sampledTimes.Length];
             double progress = sample * (double)step / durationSeconds;
             progress = loop ? progress - Math.Floor(progress) : Math.Min(1, progress);
             return Mathf.LerpUnclamped(timeRange.x, timeRange.y, (float)progress);
@@ -66,7 +68,7 @@ namespace Gaussians.Benchmark
         {
             if (!float.IsFinite(heldTime) || !float.IsFinite(timeRange.x) || !float.IsFinite(timeRange.y) || !float.IsFinite(durationSeconds) || durationSeconds <= 0)
                 return "Times/duration must be finite and duration positive.";
-            if (animation == Animation.SampledTimes)
+            if (animationMode == Animation.SampledTimes)
             {
                 if (sampledTimes == null || sampledTimes.Length == 0) return "Provide sampled model times.";
                 foreach (float time in sampledTimes) if (!float.IsFinite(time)) return "Sampled times must be finite.";
@@ -105,6 +107,7 @@ namespace Gaussians.Benchmark
                 if (entry != null && entry.overrideSHStorage) p.m_SHStorage = entry.shStorage;
             }
         }
+        
         public override void Begin() { foreach (var p in players) p.Pause(); initialEvaluations = EvaluationCount(); }
         public override void SetSample(int sample, float stepSeconds) { foreach (var p in players) p.m_ModelTime = TimeAt(sample, stepSeconds); }
         public override string CheckError()
@@ -113,7 +116,7 @@ namespace Gaussians.Benchmark
             return null;
         }
         int EvaluationCount() { int count = 0; foreach (var p in players) count += p.EvaluationCount; return count; }
-        public override string Describe() => JsonUtility.ToJson(new Report { mode = mode.ToString(), animation = animation.ToString(), evaluations = EvaluationCount() - initialEvaluations, settings = JsonUtility.ToJson(this) });
+        public override string Describe() => JsonUtility.ToJson(new Report { mode = mode.ToString(), animation = animationMode.ToString(), evaluations = EvaluationCount() - initialEvaluations, settings = JsonUtility.ToJson(this) });
         [Serializable] sealed class Report { public string mode, animation, settings; public int evaluations; }
     }
 }
