@@ -7,7 +7,7 @@ Compare renderer settings with repeatable camera poses and model inputs. A bench
 1. Open a dedicated scene with working Gaussian rendering. Use **Tools → Gaussians → Benchmark → Create Experiment** to create an experiment, config asset, camera, viewpoint and subject root.
 2. Add your renderers and imported models beneath the experiment. Assign subject roots to **Variants**. The same root can appear in multiple variants to compare settings.
 3. Position the viewpoint objects, or use **Capture Scene View as Camera Point**. Choose **Fixed Views** for separate trials per viewpoint, or **Path** to traverse all points during each trial.
-4. Set warm-up frames, measured frames, repetitions and run mode in the config. Use **Show Pose in Game View** to inspect a variant and camera sample, then **Validate Scene** from the benchmark menu.
+4. Set warm-up frames, measured frames, repetitions and run mode in the config. Use **Show Pose in Game View** to inspect a variant and camera sample, or enable **Live Preview Samples** to scrub the path, then **Validate Scene** from the benchmark menu.
 5. Save the scene. Use **Enter Play Mode and Run This Experiment** for a functional check, or **Build Current Scene** / **Build and Run Current Scene** for player measurements.
 
 The player starts enabled experiments automatically and exits after writing results. The build commands include only the active scene and temporarily enable frame timing statistics. Keep benchmark scenes out of your normal Build Profiles.

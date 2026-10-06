@@ -9,7 +9,8 @@ namespace Gaussians.Benchmark.Editor
     /// <summary>Applies a chosen benchmark sample to the authored scene for inspection.</summary>
     public static class GaussianBenchmarkScenePose
     {
-        public static void Apply(GaussianBenchmarkExperiment experiment, int variantIndex, int sample, int view)
+        public static void Apply(GaussianBenchmarkExperiment experiment, int variantIndex, int sample, int view,
+            string undoName = "Show Gaussian benchmark pose")
         {
             if (!experiment) throw new ArgumentNullException(nameof(experiment));
             if (experiment.ValidationError() is string validation) throw new InvalidOperationException(validation);
@@ -30,12 +31,12 @@ namespace Gaussians.Benchmark.Editor
 
             Undo.IncrementCurrentGroup();
             int undoGroup = Undo.GetCurrentGroup();
-            Undo.SetCurrentGroupName("Show Gaussian benchmark pose");
+            Undo.SetCurrentGroupName(undoName);
             try
             {
                 // The scene is the inspection state. Record it as one normal Unity Undo step.
-                foreach (var source in experiments) Undo.RegisterFullObjectHierarchyUndo(source.gameObject, "Show Gaussian benchmark pose");
-                foreach (var camera in cameras) Undo.RecordObject(camera, "Show Gaussian benchmark pose");
+                foreach (var source in experiments) Undo.RegisterFullObjectHierarchyUndo(source.gameObject, undoName);
+                foreach (var camera in cameras) Undo.RecordObject(camera, undoName);
                 foreach (var camera in cameras) camera.enabled = false;
                 foreach (var source in experiments)
                     foreach (var subject in source.variants.Select(v => v.subject).Distinct()) subject.SetActive(false);
