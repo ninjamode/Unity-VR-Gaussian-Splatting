@@ -29,3 +29,12 @@ Enable:
 - **Quest foveation:** Keep Subsampled Layout disabled if it causes black regions, particularly with Symmetric Projection on Quest 3.
 
 Check output [4DGS](4DGS.md) for animated deformation through this renderer.
+
+
+## Importing variations
+
+The importer detects **3DGS** or **Layered 3DGS** using the files PLY header. A layered file has the normal 3DGS properties plus a scalar `int` or `int32` vertex property named `layer`. A malformed layer declaration is an error.
+
+Importing a layered file creates one ordinary asset per distinct layer ID, named `<source>_layer_<id>.asset`. Every layer uses the selected quality settings. Place a renderer for each asset under the same parent, with matching transforms, and add them to a [Gaussians Group](GaussiansGroup.md) to sort their splats together. The importer preserves source coordinates across layers.
+
+More variations of 3DGS might follow.

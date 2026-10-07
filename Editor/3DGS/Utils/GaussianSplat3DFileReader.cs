@@ -1,16 +1,13 @@
-using Gaussians.Core.Editor.Utils;
-using System.Collections.Generic;
-using System.Globalization;
+// SPDX-License-Identifier: MIT
+
 using System.IO;
-using System.Linq;
-using Gaussians.ThreeD;
+using Gaussians.Core.Editor.Utils;
+using Gaussians.Core.Editor.Importing;
 using Unity.Burst;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
-using UnityEngine.Assertions;
 
 namespace Gaussians.ThreeD.Editor.Utils
 {
@@ -29,73 +26,7 @@ namespace Gaussians.ThreeD.Editor.Utils
     [BurstCompile]
     public class GaussianSplat3DFileReader
     {
-        // Returns splat count
-        public static int ReadFileHeader(string filePath)
-        {
-            int vertexCount = 0;
-            if (File.Exists(filePath))
-            {
-                if (isPLY(filePath))
-                    PLYFileReader.ReadFileHeader(filePath, out vertexCount, out _, out _);
-                else if (isSPZ(filePath))
-                    SPZFileReader.ReadFileHeader(filePath, out vertexCount);
-            }
-            return vertexCount;
-        }
-
-        public static unsafe void ReadFile(string filePath, out NativeArray<InputSplatData> splats)
-        {
-            if (isPLY(filePath))
-            {
-                PLYFileReader.ReadFile(filePath, out var splatCount, out var vertexStride, out var attributes, out var plyRawData);
-                using (plyRawData)
-                {
-                    string attrError = CheckPLYAttributes(attributes);
-                    if (!string.IsNullOrEmpty(attrError))
-                        throw new IOException($"PLY file is probably not a Gaussian Splat file? Missing properties: {attrError}");
-                    splats = PLYDataToSplats(plyRawData, splatCount, vertexStride, attributes);
-                    try
-                    {
-                        ReorderSHs(splatCount, (float*)splats.GetUnsafePtr());
-                        LinearizeData(splats);
-                    }
-                    catch { splats.Dispose(); splats = default; throw; }
-                }
-                return;
-            }
-            if (isSPZ(filePath))
-            {
-                SPZFileReader.ReadFile(filePath, out splats);
-                return;
-            }
-            throw new IOException($"File {filePath} is not a supported format");
-        }
-
-        static bool isPLY(string filePath) => filePath.EndsWith(".ply", true, CultureInfo.InvariantCulture);
-        static bool isSPZ(string filePath) => filePath.EndsWith(".spz", true, CultureInfo.InvariantCulture);
-
-        static string CheckPLYAttributes(List<(string, PLYFileReader.ElementType)> attributes)
-        {
-            string[] required = { "x", "y", "z", "f_dc_0", "f_dc_1", "f_dc_2", "opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3" };
-            List<string> missing = required.Where(req => !attributes.Contains((req, PLYFileReader.ElementType.Float))).ToList();
-            if (missing.Count == 0)
-                return null;
-            return string.Join(",", missing);
-        }
-
-        static unsafe NativeArray<InputSplatData> PLYDataToSplats(NativeArray<byte> input, int count, int stride, List<(string, PLYFileReader.ElementType)> attributes)
-        {
-            NativeArray<int> fileAttrOffsets = new NativeArray<int>(attributes.Count, Allocator.Temp);
-            int offset = 0;
-            for (var ai = 0; ai < attributes.Count; ai++)
-            {
-                var attr = attributes[ai];
-                fileAttrOffsets[ai] = offset;
-                offset += PLYFileReader.TypeToSize(attr.Item2);
-            }
-
-            string[] splatAttributes =
-            {
+        static readonly string[] Fields = {
                 "x",
                 "y",
                 "z",
@@ -157,66 +88,26 @@ namespace Gaussians.ThreeD.Editor.Utils
                 "rot_0",
                 "rot_1",
                 "rot_2",
-                "rot_3",                
+                "rot_3",
             };
-            Assert.AreEqual(UnsafeUtility.SizeOf<InputSplatData>() / 4, splatAttributes.Length);
-            NativeArray<int> srcOffsets = new NativeArray<int>(splatAttributes.Length, Allocator.Temp);
-            for (int ai = 0; ai < splatAttributes.Length; ai++)
-            {
-                int attrIndex = attributes.IndexOf((splatAttributes[ai], PLYFileReader.ElementType.Float));
-                int attrOffset = attrIndex >= 0 ? fileAttrOffsets[attrIndex] : -1;
-                srcOffsets[ai] = attrOffset;
-            }
-            
-            NativeArray<InputSplatData> dst = new NativeArray<InputSplatData>(count, Allocator.Persistent);
-            try
-            {
-                ReorderPLYData(count, (byte*)input.GetUnsafeReadOnlyPtr(), stride, (byte*)dst.GetUnsafePtr(), UnsafeUtility.SizeOf<InputSplatData>(), (int*)srcOffsets.GetUnsafeReadOnlyPtr());
-                return dst;
-            }
-            catch { dst.Dispose(); throw; }
-        }
-
-        [BurstCompile]
-        static unsafe void ReorderPLYData(int splatCount, byte* src, int srcStride, byte* dst, int dstStride, int* srcOffsets)
+        internal static void Validate(PLYVertexLayout layout) => layout.RequireFloatProperties(new[] {
+            "x", "y", "z", "f_dc_0", "f_dc_1", "f_dc_2", "opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3" });
+        public static int ReadFileHeader(string path) => File.Exists(path) ? GaussianSplat3DImporter.Inspect(path).SplatCount : 0;
+        public static void ReadFile(string path, out NativeArray<InputSplatData> splats)
         {
-            for (int i = 0; i < splatCount; i++)
-            {
-                for (int attr = 0; attr < dstStride / 4; attr++)
-                {
-                    if (srcOffsets[attr] >= 0)
-                        *(int*)(dst + attr * 4) = *(int*)(src + srcOffsets[attr]);
-                }
-                src += srcStride;
-                dst += dstStride;
-            }
+            splats = default;
+            if (path.EndsWith(".spz", System.StringComparison.OrdinalIgnoreCase)) { SPZFileReader.ReadFile(path, out splats); return; }
+            if (!path.EndsWith(".ply", System.StringComparison.OrdinalIgnoreCase)) throw new IOException("Unsupported Gaussian source: " + path);
+            PLYFileReader.ReadFile(path, out var layout, out var raw);
+            using (raw) splats = DecodePLY(raw, layout);
         }
-
-        [BurstCompile]
-        static unsafe void ReorderSHs(int splatCount, float* data)
+        internal static NativeArray<InputSplatData> DecodePLY(NativeArray<byte> raw, PLYVertexLayout layout)
         {
-            int splatStride = UnsafeUtility.SizeOf<InputSplatData>() / 4;
-            int shStartOffset = 9, shCount = 15;
-            float* tmp = stackalloc float[shCount * 3];
-            int idx = shStartOffset;
-            for (int i = 0; i < splatCount; ++i)
-            {
-                for (int j = 0; j < shCount; ++j)
-                {
-                    tmp[j * 3 + 0] = data[idx + j];
-                    tmp[j * 3 + 1] = data[idx + j + shCount];
-                    tmp[j * 3 + 2] = data[idx + j + shCount * 2];
-                }
-
-                for (int j = 0; j < shCount * 3; ++j)
-                {
-                    data[idx + j] = tmp[j];
-                }
-
-                idx += splatStride;
-            }
+            Validate(layout);
+            var splats = GaussianPlyMapping.Decode<InputSplatData>(raw, layout, Fields);
+            try { GaussianPlyMapping.ReorderSH(splats, 9 * sizeof(float)); LinearizeData(splats); return splats; }
+            catch { splats.Dispose(); throw; }
         }
-
         [BurstCompile]
         struct LinearizeDataJob : IJobParallelFor
         {

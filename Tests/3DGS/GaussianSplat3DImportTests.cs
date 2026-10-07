@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Text;
+using Gaussians.ThreeD.Editor;
 using Gaussians.ThreeD.Editor.Utils;
 using NUnit.Framework;
 using UnityEngine;
@@ -41,6 +43,35 @@ namespace Gaussians.Package.Tests
             GeneratedGaussianCloud.WritePly(path, 2);
             using (var file = File.OpenWrite(path)) file.SetLength(file.Length - 4);
             Assert.Throws<IOException>(() => GaussianSplat3DFileReader.ReadFile(path, out _));
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void HeaderOnlyDetectionDoesNotReadVertexPayload(bool layered)
+        {
+            string path = Path.Combine(folder, "header.ply");
+            GeneratedGaussianCloud.WritePly(path);
+            string header = Encoding.ASCII.GetString(File.ReadAllBytes(path));
+            header = header.Substring(0, header.IndexOf("end_header\n", StringComparison.Ordinal) + 11);
+            if (layered) header = header.Replace("property double confidence", "property int32 layer\nproperty double confidence");
+            File.WriteAllText(path, header, new UTF8Encoding(false));
+            var source = GaussianSplat3DImporter.Inspect(path);
+            Assert.That(source.SplatCount, Is.EqualTo(1000));
+            Assert.That(source.Format, Is.EqualTo(layered ? GaussianSplat3DSourceFormat.Layered3DGS : GaussianSplat3DSourceFormat.ThreeDGS));
+            Assert.Throws<IOException>(() => GaussianSplat3DImporter.Import(path, "Assets/__InvalidGaussianImport", GaussianSplat3DImportSettings.Lossless, false));
+        }
+
+        [TestCase("float layer")]
+        [TestCase("int layer\nproperty int layer")]
+        public void InvalidLayerDeclarationCannotBecomeOrdinary3DGS(string declaration)
+        {
+            string path = Path.Combine(folder, "invalid-layer.ply");
+            GeneratedGaussianCloud.WritePly(path);
+            string data = Encoding.ASCII.GetString(File.ReadAllBytes(path));
+            string header = data.Substring(0, data.IndexOf("end_header\n", StringComparison.Ordinal) + 11)
+                .Replace("property double confidence", "property " + declaration + "\nproperty double confidence");
+            File.WriteAllText(path, header, new UTF8Encoding(false));
+            Assert.Throws<IOException>(() => GaussianSplat3DImporter.Inspect(path));
         }
     }
 }

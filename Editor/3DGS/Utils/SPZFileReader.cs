@@ -157,22 +157,21 @@ namespace Gaussians.ThreeD.Editor.Utils
                 col /= 0.15f;
                 splat.dc0 = GaussianUtils.SH0ToColor(col);
 
-                int shIdx = index * shCoeffs * 3;
-                splat.sh1 = UnpackSH(shIdx); shIdx += 3;
-                splat.sh2 = UnpackSH(shIdx); shIdx += 3;
-                splat.sh3 = UnpackSH(shIdx); shIdx += 3;
-                splat.sh4 = UnpackSH(shIdx); shIdx += 3;
-                splat.sh5 = UnpackSH(shIdx); shIdx += 3;
-                splat.sh6 = UnpackSH(shIdx); shIdx += 3;
-                splat.sh7 = UnpackSH(shIdx); shIdx += 3;
-                splat.sh8 = UnpackSH(shIdx); shIdx += 3;
-                splat.sh9 = UnpackSH(shIdx); shIdx += 3;
-                splat.shA = UnpackSH(shIdx); shIdx += 3;
-                splat.shB = UnpackSH(shIdx); shIdx += 3;
-                splat.shC = UnpackSH(shIdx); shIdx += 3;
-                splat.shD = UnpackSH(shIdx); shIdx += 3;
-                splat.shE = UnpackSH(shIdx); shIdx += 3;
-                splat.shF = UnpackSH(shIdx); shIdx += 3;
+                splat.sh1 = UnpackSH(index, 0);
+                splat.sh2 = UnpackSH(index, 1);
+                splat.sh3 = UnpackSH(index, 2);
+                splat.sh4 = UnpackSH(index, 3);
+                splat.sh5 = UnpackSH(index, 4);
+                splat.sh6 = UnpackSH(index, 5);
+                splat.sh7 = UnpackSH(index, 6);
+                splat.sh8 = UnpackSH(index, 7);
+                splat.sh9 = UnpackSH(index, 8);
+                splat.shA = UnpackSH(index, 9);
+                splat.shB = UnpackSH(index, 10);
+                splat.shC = UnpackSH(index, 11);
+                splat.shD = UnpackSH(index, 12);
+                splat.shE = UnpackSH(index, 13);
+                splat.shF = UnpackSH(index, 14);
 
                 splats[index] = splat;
             }
@@ -184,8 +183,11 @@ namespace Gaussians.ThreeD.Editor.Utils
                 return fx;
             }
 
-            Vector3 UnpackSH(int idx)
+            Vector3 UnpackSH(int splatIndex, int coefficient)
             {
+                if (coefficient >= shCoeffs)
+                    return Vector3.zero;
+                int idx = (splatIndex * shCoeffs + coefficient) * 3;
                 Vector3 sh = new Vector3(packedSh[idx], packedSh[idx + 1], packedSh[idx + 2]) - new Vector3(128.0f, 128.0f, 128.0f);
                 sh /= 128.0f;
                 return sh;
