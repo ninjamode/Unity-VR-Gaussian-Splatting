@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- Layered 3DGS support
+- Importer reorganization
+
 ## 0.3.0
 
 - Default to Optimal Projection (see paper) for better wide angle rendering
