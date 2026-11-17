@@ -1,5 +1,5 @@
 {
   "name": "Gaussians.Benchmark",
-  "references": ["Gaussians.TwoD", "Gaussians.ThreeD"],
+  "references": ["Gaussians.Core", "Gaussians.TwoD", "Gaussians.ThreeD"],
   "autoReferenced": true
 }

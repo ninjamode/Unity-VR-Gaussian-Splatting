@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 using System;
 using UnityEngine;
-using UnityEngine.XR;
 
 namespace Gaussians.Core
 {
@@ -84,13 +83,13 @@ namespace Gaussians.Core
             var projection = stereo ? camera.GetStereoProjectionMatrix(Camera.StereoscopicEye.Left) : camera.projectionMatrix;
             var rightView = stereo ? camera.GetStereoViewMatrix(Camera.StereoscopicEye.Right) : view;
             var rightProjection = stereo ? camera.GetStereoProjectionMatrix(Camera.StereoscopicEye.Right) : projection;
-            var size = new Vector2Int(
-                stereo && XRSettings.eyeTextureWidth > 0 ? XRSettings.eyeTextureWidth : camera.pixelWidth,
-                stereo && XRSettings.eyeTextureHeight > 0 ? XRSettings.eyeTextureHeight : camera.pixelHeight);
+            bool hasXrPass = GaussianRenderTargets.TryGetXrPass(camera, out var pass);
+            var size = hasXrPass
+                ? new Vector2Int(pass.renderTargetDesc.width, pass.renderTargetDesc.height)
+                : new Vector2Int(camera.pixelWidth, camera.pixelHeight);
             return new GaussianSplatCameraState(view, projection, rightView, rightProjection, size, size,
                 stereo ? 2 : 1, camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right ? 1 : 0,
-                stereo && XRSettings.stereoRenderingMode == XRSettings.StereoRenderingMode.SinglePassInstanced &&
-                !SystemInfo.supportsMultiview ? 2 : 1);
+                hasXrPass && GaussianRenderTargets.IsInstancedStereo(pass) ? 2 : 1);
         }
     }
 }

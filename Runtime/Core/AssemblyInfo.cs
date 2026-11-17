@@ -1,3 +1,9 @@
 using System.Runtime.CompilerServices;
+[assembly: InternalsVisibleTo("Gaussians.Benchmark")]
+[assembly: InternalsVisibleTo("Gaussians.Benchmark.Editor")]
+[assembly: InternalsVisibleTo("Gaussians.Core.Editor")]
+[assembly: InternalsVisibleTo("Gaussians.FourD.Rendering")]
 [assembly: InternalsVisibleTo("Gaussians.TwoD")]
+[assembly: InternalsVisibleTo("Gaussians.TwoD.Editor")]
 [assembly: InternalsVisibleTo("Gaussians.ThreeD")]
+[assembly: InternalsVisibleTo("Gaussians.ThreeD.Editor")]

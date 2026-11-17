@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using Gaussians.Core;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
@@ -24,7 +25,7 @@ namespace Gaussians.Benchmark.Editor
             {
                 try
                 {
-                    var experiment = UnityEngine.Object.FindObjectsByType<GaussianBenchmarkExperiment>(FindObjectsSortMode.None).Single(e => e.experimentId == id);
+                    var experiment = GaussianObjectSearch.FindActive<GaussianBenchmarkExperiment>().Single(e => e.experimentId == id);
                     GaussianBenchmarkRunner.StartRun(experiment);
                 }
                 catch (Exception e) { Debug.LogException(e); }

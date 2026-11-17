@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using Gaussians.Core;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -53,7 +54,7 @@ namespace Gaussians.FourD.Diagnostics
                 {
                     if (sceneCount > 0) yield return SceneManager.LoadSceneAsync(sceneIndex);
                     yield return null;
-                    var renderers = FindObjectsByType<GaussianSplat4D>(FindObjectsSortMode.None);
+                    var renderers = GaussianObjectSearch.FindActive<GaussianSplat4D>();
                     var players = renderers;
                     var rendererEnabled = Array.ConvertAll(renderers, r => r.Renderer.enabled);
                     var playerEnabled = Array.ConvertAll(players, p => p.enabled);

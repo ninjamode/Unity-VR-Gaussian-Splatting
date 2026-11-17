@@ -1,7 +1,8 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
+using Gaussians.Core;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.XR;
 
 namespace Gaussians.Benchmark
@@ -19,13 +20,7 @@ namespace Gaussians.Benchmark
     {
         public static event Action<Camera> ValidatePipelineCamera;
         public static void CheckCamera(Camera camera) => ValidatePipelineCamera?.Invoke(camera);
-        static readonly List<XRDisplaySubsystem> Displays = new();
-        public static XRDisplaySubsystem RunningDisplay()
-        {
-            SubsystemManager.GetSubsystems(Displays);
-            foreach (var display in Displays) if (display.running) return display;
-            return null;
-        }
+        public static XRDisplaySubsystem RunningDisplay() => GaussianRenderTargets.RunningXrDisplay();
 
         public static string ModeError(GaussianBenchmarkConfig.RunMode mode, bool xrRunning)
         {
@@ -39,16 +34,31 @@ namespace Gaussians.Benchmark
         public static GaussianBenchmarkXrInfo Capture(XRDisplaySubsystem display)
         {
             bool refreshAvailable = display.TryGetDisplayRefreshRate(out float refresh) && float.IsFinite(refresh) && refresh > 0;
+            bool hasPass = GaussianRenderTargets.TryGetXrPass(display, 0, out var pass);
             return new GaussianBenchmarkXrInfo
             {
-                display = display.subsystemDescriptor.id, stereoMode = XRSettings.stereoRenderingMode.ToString(),
-                eyeWidth = XRSettings.eyeTextureWidth, eyeHeight = XRSettings.eyeTextureHeight,
-                eyeResolutionScale = XRSettings.eyeTextureResolutionScale, viewportScale = XRSettings.renderViewportScale,
+                display = display.subsystemDescriptor.id, stereoMode = hasPass ? StereoMode(pass) : "Unavailable",
+                eyeWidth = pass.renderTargetDesc.width, eyeHeight = pass.renderTargetDesc.height,
+                eyeResolutionScale = display.scaleOfAllRenderTargets, viewportScale = display.scaleOfAllViewports,
                 foveationLevel = display.foveatedRenderingLevel, foveationFlags = display.foveatedRenderingFlags.ToString(),
                 refreshRateHz = refreshAvailable ? refresh.ToString("R", CultureInfo.InvariantCulture) : "unavailable",
                 frameBudgetMs = refreshAvailable ? (1000f / refresh).ToString("R", CultureInfo.InvariantCulture) : "unavailable"
             };
         }
+
+        static string StereoMode(XRDisplaySubsystem.XRRenderPass pass)
+        {
+            if (pass.GetRenderParameterCount() < 2)
+                return "MultiPass";
+            if (pass.renderTargetDesc.dimension != TextureDimension.Tex2DArray)
+                return "SinglePass";
+            return GaussianRenderTargets.IsInstancedStereo(pass) ? "SinglePassInstanced" : "SinglePassMultiview";
+        }
+
+        internal static bool MatchesResolution(XRDisplaySubsystem display, GaussianBenchmarkXrInfo baseline) =>
+            GaussianRenderTargets.TryGetXrPass(display, 0, out var pass) &&
+            pass.renderTargetDesc.width == baseline.eyeWidth && pass.renderTargetDesc.height == baseline.eyeHeight &&
+            display.scaleOfAllViewports == baseline.viewportScale && display.scaleOfAllRenderTargets == baseline.eyeResolutionScale;
 
         public static string SettingsError(GaussianBenchmarkConfig config, bool refreshAvailable, float refresh, float foveation)
         {

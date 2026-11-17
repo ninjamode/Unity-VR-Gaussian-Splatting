@@ -77,7 +77,7 @@ namespace Gaussians.Core.Editor
             foreach (var type in TypeCache.GetTypesDerivedFrom<MonoBehaviour>())
                 if (type.FullName == HdrpVolume) { volumeType = type; break; }
             if (volumeType == null) return null;
-            foreach (var obj in UnityEngine.Object.FindObjectsByType(volumeType, FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            foreach (var obj in GaussianObjectSearch.FindActive(volumeType))
             {
                 if (obj is not Behaviour volume || !volume.isActiveAndEnabled || !volume.gameObject.scene.IsValid()) continue;
                 using var serialized = new SerializedObject(volume);

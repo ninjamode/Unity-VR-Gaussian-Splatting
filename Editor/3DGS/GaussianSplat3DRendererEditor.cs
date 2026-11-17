@@ -392,7 +392,7 @@ namespace Gaussians.ThreeD.Editor
             }
             if (GUILayout.Button("Use All Cutouts"))
             {
-                gs.m_Cutouts = FindObjectsByType<GaussianCutout>(FindObjectsSortMode.InstanceID);
+                gs.m_Cutouts = GaussianObjectSearch.FindActiveInInstanceIdOrder<GaussianCutout>();
                 gs.UpdateEditCountsAndBounds();
                 EditorUtility.SetDirty(gs);
             }

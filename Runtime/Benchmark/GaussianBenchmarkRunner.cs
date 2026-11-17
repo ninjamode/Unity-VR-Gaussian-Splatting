@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using Gaussians.Core;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.XR;
@@ -59,7 +60,7 @@ namespace Gaussians.Benchmark
         {
             if (!Application.isPlaying) throw new InvalidOperationException("Benchmarks run in Play mode or a standalone player.");
             if (Active) throw new InvalidOperationException("A benchmark is already running.");
-            var experiments = only ? new[] { only } : FindObjectsByType<GaussianBenchmarkExperiment>(FindObjectsSortMode.None)
+            var experiments = only ? new[] { only } : GaussianObjectSearch.FindActive<GaussianBenchmarkExperiment>()
                 .Where(e => e.enabled).OrderBy(e => e.experimentId, StringComparer.Ordinal).ToArray();
             if (experiments.Length == 0) throw new InvalidOperationException("No active experiments in this scene.");
             var ids = new HashSet<string>();
@@ -128,7 +129,7 @@ namespace Gaussians.Benchmark
                 if (!Application.isFocused) throw new InvalidOperationException("XR benchmark requires the headset app to have focus.");
             }
             else xrDisplay = GaussianBenchmarkXr.RunningDisplay();
-            if (GaussianBenchmarkXr.ModeError(sources[0].config.mode, xrDisplay != null || XRSettings.enabled) is string modeError)
+            if (GaussianBenchmarkXr.ModeError(sources[0].config.mode, xrDisplay != null) is string modeError)
                 throw new InvalidOperationException(modeError);
             if (xrMode && xrDisplay == null) throw new InvalidOperationException("No running XR display was found.");
             if (xrMode)
@@ -151,10 +152,10 @@ namespace Gaussians.Benchmark
             if (!xrMode) { QualitySettings.vSyncCount = 0; Application.targetFrameRate = -1; }
             Application.runInBackground = true;
             // Camera state is restored even when setup, capture or file output throws.
-            cameras = FindObjectsByType<Camera>(FindObjectsSortMode.None);
+            cameras = GaussianObjectSearch.FindActive<Camera>();
             cameraStates = cameras.Select(c => c.enabled).ToArray();
             foreach (var c in cameras) c.enabled = false;
-            originals = FindObjectsByType<GaussianBenchmarkExperiment>(FindObjectsSortMode.None);
+            originals = GaussianObjectSearch.FindActive<GaussianBenchmarkExperiment>();
             activeStates = originals.Select(s => s.gameObject.activeSelf).ToArray();
             sourceExtensions = originals.SelectMany(e => e.GetComponents<GaussianBenchmarkExtension>()).Where(e => e.enabled).ToArray();
             foreach (var extension in sourceExtensions) extension.CaptureSourceState();
@@ -219,6 +220,8 @@ namespace Gaussians.Benchmark
                 if (xrMode)
                 {
                     trial.xr = GaussianBenchmarkXr.Capture(xrDisplay);
+                    if (trial.xr.eyeWidth <= 0 || trial.xr.eyeHeight <= 0)
+                        throw new InvalidOperationException("The XR display did not report a render target for the benchmark camera.");
                     if (clone.cameraPathRoot) trial.xr.cameraPolicy = "Authored camera-root path with live tracked head pose; keep headset stationary for timing comparisons. Runtime stereo projections and reprojection remain active.";
                     trial.renderWidth = trial.xr.eyeWidth; trial.renderHeight = trial.xr.eyeHeight;
                     trial.xrTimings.Capacity = config.measuredFrames;
@@ -316,8 +319,7 @@ namespace Gaussians.Benchmark
                 if (xrError != null) throw new InvalidOperationException(xrError);
                 GaussianBenchmarkXr.CheckCamera(clone.benchmarkCamera);
                 if (!clone.benchmarkCamera.stereoEnabled) throw new InvalidOperationException("Benchmark camera is not rendering in stereo. Enable XR rendering on this camera and pipeline.");
-                if (trial.xr != null && (XRSettings.eyeTextureWidth != trial.xr.eyeWidth || XRSettings.eyeTextureHeight != trial.xr.eyeHeight
-                    || XRSettings.renderViewportScale != trial.xr.viewportScale || XRSettings.eyeTextureResolutionScale != trial.xr.eyeResolutionScale))
+                if (trial.xr != null && !GaussianBenchmarkXr.MatchesResolution(xrDisplay, trial.xr))
                     throw new InvalidOperationException("XR render resolution changed during the trial. Disable adaptive resolution for comparable measurements.");
             }
             string error = readiness();
