@@ -8,8 +8,8 @@ namespace Gaussians.FourD.Editor
     public sealed class GaussianSplat4DEditor : UnityEditor.Editor
     {
         bool m_Preview, m_Resources;
-        static readonly Dictionary<int, GaussianSplat4DEditor> s_PreviewOwners = new();
-        int m_PreviewPlayerId;
+        static readonly Dictionary<EntityId, GaussianSplat4DEditor> s_PreviewOwners = new();
+        EntityId m_PreviewPlayerId;
         double m_PreviousUpdate, m_SavedPosition;
         float m_SavedModelTime;
         GaussianSplat4D Player => target as GaussianSplat4D;
@@ -72,7 +72,7 @@ namespace Gaussians.FourD.Editor
                 if (GUILayout.Button("Pause")) player.Pause();
                 if (GUILayout.Button("Stop"))
                 {
-                    if (s_PreviewOwners.TryGetValue(player.GetInstanceID(),out var owner)) owner.EndPreview();
+                    if (s_PreviewOwners.TryGetValue(player.GetEntityId(),out var owner)) owner.EndPreview();
                     RecordSeek(); player.Stop(); RefreshView();
                 }
                 EditorGUILayout.EndHorizontal();
@@ -97,7 +97,7 @@ namespace Gaussians.FourD.Editor
         {
             if (!Application.isPlaying && !m_Preview)
             {
-                m_PreviewPlayerId = Player.GetInstanceID();
+                m_PreviewPlayerId = Player.GetEntityId();
                 if (s_PreviewOwners.TryGetValue(m_PreviewPlayerId,out var owner) && owner != this) owner.EndPreview();
                 m_SavedPosition = Player.PositionSeconds;
                 m_SavedModelTime = Player.m_ModelTime;
