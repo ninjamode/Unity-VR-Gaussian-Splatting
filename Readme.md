@@ -20,12 +20,11 @@ https://github.com/ninjamode/Unity-VR-Gaussian-Splatting.git
 
 ## Quick start
 
-1. Open **Tools → Gaussians → 3D → Create Splat Asset**, select your trained Gaussian file, choose a quality preset and click **Create Asset**.
-2. Add **Gaussians → 3D Splat Renderer** to a GameObject and assign the generated asset.
-3. Configure the render pipeline. For URP, add **Gaussians** to the camera's renderer asset and keep Render Graph enabled. For HDRP, add **Gaussians HDRP Pass** to a Custom Pass Volume at **Before Transparent**. O
+1. Configure the render pipeline. For URP, add **Gaussians** to the camera's renderer asset and keep Render Graph enabled. For HDRP, add **Gaussians HDRP Pass** to a Custom Pass Volume at **Before Transparent**.
+2. Open **Tools → Gaussians → 3D → Create Splat Asset**, select your trained Gaussian file, choose a quality preset and click **Create Asset**.
+3. Add **Gaussians → 3D Splat Renderer** to a GameObject and assign the generated asset.
 
-Use the [3DGS guide](Documentation~/3DGS.md) for further info. Keep generated data files with their assets.
-
+Use the [3DGS guide](Documentation~/3DGS.md) for further info.
 
 ## General
 
@@ -33,7 +32,7 @@ If multiple models are present they are sorted individually by default and do no
 
 **Device Support:** Works on desktop as well as Quest 3. Apple Vision Pro should be supported but is untested. Other VR systems should be fine too.
 
-Built-in doesnt need any special configuration, but is slower. HDRP is mostly untested.
+Built-in doesnt need any special configuration, but is slower. HDRP is mostly untested, but expected to work.
 
 ### 2DGS
 
